@@ -893,66 +893,132 @@ function createBaseLayers() {
     if (aiscatcher_server == 'disable' || heatmap || replay ) {
         aiscatcher_server = "";
     }
-    if (aiscatcher_server) {
+//start
+	if (aiscatcher_server) {
 
-        g.aiscatcher_source = new ol.source.Vector({
-            format: new ol.format.GeoJSON(),
-        });
+		    g.aiscatcher_source = new ol.source.Vector({
+		        format: new ol.format.GeoJSON(),
+		    });
 
-        const aiscatcher_mapping = {
-            0: { size: [20, 20], offset: [120, 20], comment: 'CLASS_OTHER' },
-            1: { size: [20, 20], offset: [120, 20], comment: 'CLASS_UNKNOWN' },
-            2: { size: [20, 20], offset: [0, 20], comment: 'CLASS_CARGO' },
-            3: { size: [20, 20], offset: [20, 20], comment: 'CLASS_B' },
-            4: { size: [20, 20], offset: [40, 20], comment: 'CLASS_PASSENGER' },
-            5: { size: [20, 20], offset: [60, 20], comment: 'CLASS_SPECIAL' },
-            6: { size: [20, 20], offset: [80, 20], comment: 'CLASS_TANKER' },
-            7: { size: [20, 20], offset: [100, 20], comment: 'CLASS_HIGHSPEED' },
-            8: { size: [20, 20], offset: [140, 20], comment: 'CLASS_FISHING' },
-            9: { size: [25, 25], offset: [0, 60], comment: 'CLASS_PLANE' },
-            10: { size: [25, 25], offset: [0, 85], comment: 'CLASS_HELICOPTER' },
-            11: { size: [20, 20], offset: [20, 40], comment: 'CLASS_STATION' },
-            12: { size: [20, 20], offset: [0, 40], comment: 'CLASS_ATON' },
-            13: { size: [20, 20], offset: [40, 40], comment: 'CLASS_SARTEPIRB' }
-        };
+		    const aiscatcher_mapping = {
+		        0: { size: [20, 20], offset: [120, 20] },
+		        1: { size: [20, 20], offset: [120, 20] },
+		        2: { size: [20, 20], offset: [0, 20] },
+		        3: { size: [20, 20], offset: [20, 20] },
+		        4: { size: [20, 20], offset: [40, 20] },
+		        5: { size: [20, 20], offset: [60, 20] },
+		        6: { size: [20, 20], offset: [80, 20] },
+		        7: { size: [20, 20], offset: [100, 20] },
+		        8: { size: [20, 20], offset: [140, 20] },
+		        9: { size: [25, 25], offset: [0, 60] },
+		        10: { size: [25, 25], offset: [0, 85] },
+		        11: { size: [20, 20], offset: [20, 40] },
+		        12: { size: [20, 20], offset: [0, 40] },
+		        13: { size: [20, 20], offset: [40, 40] }
+		    };
 
-        g.aiscatcherLayer = new ol.layer.Vector({
-            type: 'overlay',
-            title: "aiscatcher",
-            name: "aiscatcher",
-            zIndex: 99,
-            source: g.aiscatcher_source,
+		    const rad = Math.PI / 180;
 
-            style: function (feature) {
-                const cog = feature.get('cog');
-                const rotation = (cog || 0) * (Math.PI / 180);
-                const shipclass = feature.get('shipclass');
-                const speed = feature.get('speed');
+		    function offsetLonLat(lon, lat, heading, meters) {
+		        if ([lon, lat, heading, meters].some(v => typeof v !== 'number')) return [lon, lat];
+		        const dLat = (meters * Math.cos(heading * rad)) / 111320;
+		        const dLon = (meters * Math.sin(heading * rad)) / (111320 * Math.cos(lat * rad));
+		        return [lon + dLon, lat + dLat];
+		    }
 
-                const ofs = aiscatcher_mapping[shipclass].offset;
-                const size = aiscatcher_mapping[shipclass].size;
+		    function normalizeHeading(angle) {
+		        if (typeof angle !== 'number') return 0;
+		        return ((angle % 360) + 360) % 360;
+		    }
 
-                let o;
-                if (speed && speed > 0.5) {
-                    o = [ofs[0], 0];
-                } else {
-                    o = ofs;
-                }
+			function getShipOutline(feature) {
+			    const geom = feature.getGeometry();
+			    if (!geom || geom.getType() !== 'Point') return null;
 
-                return new ol.style.Style({
-                    image: new ol.style.Icon({
-                        src: aiscatcher_server + '/icons.png',
-                        anchor: [0.5, 0.5],
-                        rotation: rotation,
-                        size: size,
-                        offset: o
-                    })
-                });
-            }
-        });
-        world.push(g.aiscatcherLayer);
-    }
+			    const [lon, lat] = ol.proj.toLonLat(geom.getCoordinates());
+			    const props = feature.getProperties();
 
+			    let heading = normalizeHeading(props.heading);
+			    if ((!heading || heading === 0) && props.cog != null && props.speed > 1) {
+			        heading = normalizeHeading(props.cog);
+			    }
+
+			    const dims = ['to_bow', 'to_stern', 'to_port', 'to_starboard'].map(k => Number(props[k]));
+			    if (dims.some(isNaN)) return null;
+			    const [to_bow, to_stern, to_port, to_starboard] = dims;
+
+			    // Stern and bow centers
+			    const sternCenter = offsetLonLat(lon, lat, heading + 180, to_stern);
+			    const bowCenter   = offsetLonLat(lon, lat, heading, to_bow);
+
+			    // Stern corners
+			    const portStern = offsetLonLat(sternCenter[0], sternCenter[1], heading + 270, to_port);
+			    const starStern = offsetLonLat(sternCenter[0], sternCenter[1], heading + 90, to_starboard);
+
+			    // Bow points for angled tip
+			    const C = offsetLonLat(portStern[0], portStern[1], heading, 0.8 * (to_bow + to_stern));
+			    const Dmid = offsetLonLat(C[0], C[1], heading + 90, 0.5 * (to_starboard + to_port));
+			    const D = offsetLonLat(Dmid[0], Dmid[1], heading, 0.2 * (to_bow + to_stern));
+			    const E = offsetLonLat(C[0], C[1], heading + 90, to_starboard + to_port);
+
+			    // Return polygonal outline: stern -> angled bow -> back to stern
+			    return [
+			        ol.proj.fromLonLat(starStern), // stern starboard
+			        ol.proj.fromLonLat(portStern), // stern port
+			        ol.proj.fromLonLat(C),         // bow port-lateral
+			        ol.proj.fromLonLat(D),         // bow tip
+			        ol.proj.fromLonLat(E),         // bow starboard-lateral
+			        ol.proj.fromLonLat(starStern)  // close polygon
+			    ];
+			}
+
+
+		    g.aiscatcherLayer = new ol.layer.Vector({
+		        type: 'overlay',
+		        title: "AIS Catcher",
+		        name: "aiscatcher",
+		        zIndex: 100,
+		        source: g.aiscatcher_source,
+		        style: feature => {
+		            const styles = [];
+
+		            // Marker
+		            const cog = feature.get('cog');
+		            const rotation = (cog || 0) * Math.PI / 180;
+		            const shipclass = feature.get('shipclass');
+		            const speed = feature.get('speed');
+		            const ofs = aiscatcher_mapping[shipclass]?.offset || [0,0];
+		            const size = aiscatcher_mapping[shipclass]?.size || [20,20];
+		            let o = (speed && speed > 0.5) ? [ofs[0],0] : ofs;
+
+		            styles.push(new ol.style.Style({
+		                image: new ol.style.Icon({
+		                    src: aiscatcher_server + '/icons.png',
+		                    anchor: [0.5, 0.5],
+		                    rotation: rotation,
+		                    size: size,
+		                    offset: o
+		                })
+		            }));
+
+		            // Outline
+		            if (OLMap.getView().getZoom() >= 13) {
+		                const coords = getShipOutline(feature);
+		                if (coords) {
+		                    styles.push(new ol.style.Style({
+		                        geometry: new ol.geom.LineString(coords),
+		                        stroke: new ol.style.Stroke({ color: '#808080', width: 2 })
+		                    }));
+		                }
+		            }
+
+		            return styles;
+		        }
+		    });
+
+		    world.push(g.aiscatcherLayer);
+		}
+//end
     layers.push(new ol.layer.Group({
         name: 'custom',
         title: 'Custom',
