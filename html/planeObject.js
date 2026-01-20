@@ -843,7 +843,7 @@ PlaneObject.prototype.updateIcon = function() {
             (g.zoomLvl >= labelZoom && this.altitude != "ground" && this.dataSource != "ais")
             || (g.zoomLvl >= labelZoomGround - 2 && this.speed > 5 && !this.fakeHex)
             || (g.zoomLvl >= labelZoomGround + 0 && !this.fakeHex)
-            || (g.zoomLvl >= labelZoomGround + 1)
+            || (g.zoomLvl >= labelZoomGround - 1)
             || this.selected
         )
     ) {
@@ -851,16 +851,19 @@ PlaneObject.prototype.updateIcon = function() {
         if (this.flight && this.flight.trim() && !(this.dataSource == "ais" && !g.extendedLabels))
             callsign =  this.flight.trim();
         else if (this.registration)
-            callsign =  'reg: ' + this.registration;
+            callsign =  this.registration;
         else
-            callsign =   'hex: ' + this.icao;
-        if ((useRouteAPI || this.dataSource == "ais") && this.routeString) {
-            if (0 && g.extendedLabels) {
-                callsign += ' - ' + this.routeString;
-            } else {
-                callsign += '\n' + this.routeString;
-            }
-        }
+            callsign =  this.icao;
+    // For AIS targets, append destination if available, otherwise fall back to routeString
+	    if (this.dataSource == "ais" && this.destination && this.destination.trim() !== "") {
+	        callsign += '\n' + this.destination;
+	    } else if ((useRouteAPI || this.dataSource == "ais") && this.routeString) {
+	        if (0 && g.extendedLabels) {
+	            callsign += ' - ' + this.routeString;
+	        } else {
+	            callsign += '\n' + this.routeString;
+	        }
+	    }
 
         const unknown = NBSP+NBSP+"?"+NBSP+NBSP;
 
