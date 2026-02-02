@@ -3321,104 +3321,146 @@ function displaySil() {
 function displayPhoto() {
     if (!SelectedPlane)
         return;
+
+    const photoContainer = document.getElementById("selected_photo");
+    if (!photoContainer)
+        return;
+
+    const icao = SelectedPlane.icao || "";
+
+    // --- AIS vessels (detected by MMSI prefix) ---
+	if (icao.startsWith("MMSI")) {
+	    const numericMMSI = icao.replace(/^MMSI/i, "");
+	    const mtURL = "https://photos.marinetraffic.com/ais/showphoto.aspx?mmsi=" + numericMMSI;
+
+	    setPhotoHtml(
+	        '<img id="airplanePhoto" src="' + mtURL + '" style="width:171px;" ' +
+	        'onerror="this.parentNode.innerHTML=\'<div style=&quot;width:171px;font-size:12px;color:currentColor;&quot;>No vessel image available</div>\';">'
+	    );
+
+	    jQuery('#copyrightInfo').html("<span>Image © MarineTraffic</span>");
+	    adjustInfoBlock();
+	    return;
+	}
+
+    // --- Aircraft images ---
     if (!SelectedPlane.psAPIresponse) {
         displaySil();
         return;
     }
-    let photos = SelectedPlane.psAPIresponse["photos"] || SelectedPlane.psAPIresponse["images"];
-    if (!photos || photos.length == 0) {
+
+    let photos = SelectedPlane.psAPIresponse["photos"] ||
+                 SelectedPlane.psAPIresponse["images"];
+
+    if (!photos || photos.length === 0) {
         displaySil();
         adjustInfoBlock();
         return;
     }
-    let new_html="";
-    let photoToPull = photos[0]["thumbnail"]["src"] || photos[0]["thumbnail"];
+
+    let photoToPull =
+        photos[0]["thumbnail"]["src"] || photos[0]["thumbnail"];
+
     let linkToPicture = photos[0]["link"];
-    //console.log(linkToPicture);
-    new_html = '<a class=\"link\" href="'+linkToPicture+'" target="_blank" rel="noopener noreferrer"><img id="airplanePhoto" src=' +photoToPull+'></a>';
-    let copyright = photos[0]["photographer"] || photos[0]["user"];
-    jQuery('#copyrightInfo').html("<span>Image © " + copyright +"</span>");
+    let copyright =
+        photos[0]["photographer"] || photos[0]["user"];
+
+    let new_html =
+        '<a class="link" href="' + linkToPicture +
+        '" target="_blank" rel="noopener noreferrer">' +
+        '<img id="airplanePhoto" src="' + photoToPull + '"></a>';
+
     setPhotoHtml(new_html);
+    jQuery('#copyrightInfo').html("<span>Image © " + copyright + "</span>");
     adjustInfoBlock();
 }
 
 function refreshPhoto(selected) {
-    if (!showPictures || selected.icao[0] == '~' || (!planespottingAPI && !planespottersAPI)) {
+
+    const icao = selected.icao || "";
+
+    // --- AIS vessels ---
+    if (icao.startsWith("MMSI")) {
+        displayPhoto();
+        return;
+    }
+
+    // --- Aircraft logic unchanged ---
+    if (!showPictures || icao[0] === '~' ||
+        (!planespottingAPI && !planespottersAPI)) {
         displaySil();
         return;
     }
-    let urlTail;
-    let param;
+
     if (!selected.dbinfoLoaded) {
         displaySil();
         return;
-    } else if (false && selected.registration != null && selected.registration.match(/^[0-9]{0,2}\+?[0-9]{0,2}$/)) {
-        urlTail = '/hex/' + selected.icao.toUpperCase();
-    } else if (selected.registration != null) {
-        urlTail = '/hex/' + selected.icao.toUpperCase() + '?reg=' + selected.registration;
+    }
+
+    let urlTail;
+    let param;
+
+    if (selected.registration != null) {
+        urlTail = '/hex/' + icao.toUpperCase() +
+                  '?reg=' + selected.registration;
+
         const type = selected.icaoType;
-        // && type != 'E170' && !type.startsWith('E75')
         if (type) {
             urlTail += '&icaoType=' + type;
         }
         param = 'DB';
     } else {
-        urlTail = 'hex/' + selected.icao.toUpperCase();
+        urlTail = 'hex/' + icao.toUpperCase();
         param = 'hex';
     }
 
+    const ts = Date.now();
 
-    const ts = new Date().getTime();
-    if (param == selected.psAPIparam) {
+    if (param === selected.psAPIparam) {
         if (selected.psAPIresponse) {
             displayPhoto();
             return;
         }
-        if (selected.psAPIresponseTS && selected.psAPIresponseTS - ts < 10000) {
+        if (selected.psAPIresponseTS &&
+            selected.psAPIresponseTS - ts < 10000) {
             return;
         }
     }
+
     selected.psAPIparam = param;
 
     setPhotoHtml("<p>Loading image...</p>");
     jQuery('#copyrightInfo').html("<span></span>");
-    //console.log(ts/1000 + 'sending psAPI request');
     selected.psAPIresponseTS = ts;
 
     if (planespottersAPI) {
-        let req = jQuery.ajax({
+        jQuery.ajax({
             url: planespottersAPIurl + urlTail,
             dataType: 'json',
-            plane: selected,
-        });
-
-        req.done(function(data) {
+            plane: selected
+        }).done(function(data) {
             this.plane.psAPIresponse = data;
-            if (SelectedPlane == this.plane) {
+            if (SelectedPlane === this.plane)
                 displayPhoto();
-            }
         });
     } else if (planespottingAPI) {
-        let req = jQuery.ajax({
-            url: 'https://www.planespotting.be/api/objects/imagesRegistration.php?registration=' + selected.registration,
+        jQuery.ajax({
+            url: 'https://www.planespotting.be/api/objects/imagesRegistration.php?registration=' +
+                 selected.registration,
             dataType: 'json',
-            plane: selected,
-        });
-
-        req.done(function(data) {
+            plane: selected
+        }).done(function(data) {
             this.plane.psAPIresponse = data;
-            if (SelectedPlane == this.plane) {
+            if (SelectedPlane === this.plane)
                 displayPhoto();
-            }
-        });
-        req.fail(function() {
-            this.plane.psAPIresponse = {'photos': []};
-            if (SelectedPlane == this.plane) {
+        }).fail(function() {
+            this.plane.psAPIresponse = { photos: [] };
+            if (SelectedPlane === this.plane)
                 displayPhoto();
-            }
         });
     }
 }
+
 
 let selCall = null;
 let selIcao = null;
