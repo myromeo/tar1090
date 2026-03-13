@@ -3335,10 +3335,11 @@ function displayPhoto() {
 
 	    setPhotoHtml(
 	        '<img id="airplanePhoto" src="' + mtURL + '" style="width:171px;" ' +
-	        'onerror="this.parentNode.innerHTML=\'<div style=&quot;width:171px;font-size:12px;color:currentColor;&quot;>No vessel image available</div>\';">'
+	        'onerror="this.parentNode.innerHTML=\'<div style=&quot;width:171px;font-size:12px;color:currentColor;&quot;>No vessel image available</div>\'; ' +
+	        'jQuery(\'#copyrightInfo\').html(\'\');" ' +
+	        'onload="jQuery(\'#copyrightInfo\').html(\'<span>Image © MarineTraffic</span>\');">'
 	    );
 
-	    jQuery('#copyrightInfo').html("<span>Image © MarineTraffic</span>");
 	    adjustInfoBlock();
 	    return;
 	}
@@ -3460,7 +3461,6 @@ function refreshPhoto(selected) {
         });
     }
 }
-
 
 let selCall = null;
 let selIcao = null;
