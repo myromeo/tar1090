@@ -331,11 +331,11 @@ HideCols = [
 // planespottingAPI = true;
 
 // get flight route from routeApi service default setting (toggle via settings checkbox)
-// useRouteAPI = false;
+useRouteAPI = true;
 // configure route display, possible values: iata, icao, city (can use multiple like this: iata+city)
-// routeDisplay = 'iata';
+routeDisplay = 'city';
 // which routeApi service to use
-// routeApiUrl = "https://adsb.im/api/0/routeset";
+routeApiUrl = "https://adsb.im/api/0/routeset";
 // routeApiUrl = "https://api.adsb.lol/api/0/routeset";
 // routeApiUrl = ""; // to disable route API so it can't be enabled by a website visitor
 
