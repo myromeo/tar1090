@@ -1647,11 +1647,11 @@ jQuery('#selected_altitude_geom1')
     });
 
     if (routeApiUrl) {
-        if (location.protocol == 'http:' && routeApiUrl == "https://adsb.im/api/0/routeset") {
+        	if (location.protocol == 'http:' && routeApiUrl == "https://adsb.im/api/0/routeset") {
             // adsb.im API provider kindly asks that tar1090 uses http for the route API if possible
-            routeApiUrl = "http://adsb.im/api/0/routeset";
-        }
-        new Toggle({
+            	routeApiUrl = "http://adsb.im/api/0/routeset";
+			}
+    		new Toggle({
             key: "useRouteAPI",
             display: "Lookup route",
             container: "#settingsRight",
@@ -2216,14 +2216,47 @@ function shortShiptype(typeNumber) {
     return "";
 }
 
+function fullShiptype(typeNumber) {
+    if (typeNumber == 0) return "Unknown";
+    if (typeNumber <= 19) return "Reserved";
+    if (typeNumber <= 28) return "Wing In Ground";
+    if (typeNumber <= 29) return "Airborne SAR";
+    if (typeNumber <= 30) return "Fishing";
+    if (typeNumber <= 32) return "Tug";
+    if (typeNumber <= 33) return "Dredger";
+    if (typeNumber <= 34) return "Dive Support";
+    if (typeNumber <= 35) return "Military";
+    if (typeNumber <= 36) return "Sailing";
+    if (typeNumber <= 37) return "Yacht";
+    if (typeNumber <= 39) return "Research";
+    if (typeNumber <= 49) return "High Speed Craft";
+    if (typeNumber <= 50) return "Pilot Vessel";
+    if (typeNumber <= 51) return "Search & Rescue";
+    if (typeNumber <= 52) return "Tug";
+    if (typeNumber <= 53) return "Tender";
+    if (typeNumber <= 54) return "Pollution Control";
+    if (typeNumber <= 55) return "Law Enforcement";
+    if (typeNumber <= 57) return "Local Vessel";
+    if (typeNumber <= 58) return "Medical Transport";
+    if (typeNumber <= 59) return "Special Craft";
+    if (typeNumber <= 69) return "Passenger Vessel";
+    if (typeNumber <= 79) return "Cargo Vessel";
+    if (typeNumber <= 89) return "Tanker";
+    if (typeNumber <= 99) return "Other";
+    return "Unknown";
+}
+
+function capitalizeWords(str) {
+    if (!str) return '';
+    return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function processBoat(feature, now, last) {
     const pr = feature.properties;
     const hex = 'MMSI' + pr.mmsi;
 
-    // Do we already have this plane object in g.planes?
-    // If not make it.
-    let plane = g.planes[hex]
-
+    // Get or create the PlaneObject
+    let plane = g.planes[hex];
     if (!plane) {
         plane = new PlaneObject(hex);
         plane.country = pr.country;
@@ -2231,38 +2264,80 @@ function processBoat(feature, now, last) {
         plane.baseScale = 0.2;
     }
 
+    // Build aircraft data
     let ac = {};
-
     ac.type = 'ais';
     ac.gs = pr.speed;
-    ac.flight = pr.callsign;
-    ac.r = pr.shipname;
+    ac.flight = pr.callsign || '';
+	ac.alt_baro = 0;
+	ac.altitude = 0;
+    
+    // Title-case the ship name
+    if (pr.shipname) {
+        ac.r = pr.shipname
+            .toLowerCase()
+            .split(' ')
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+    } else {
+        ac.r = '';
+    }
+
     ac.seen = now - pr.last_signal;
-
-    ac.messages  = pr.count;
-    ac.rssi      = pr.level;
-
+    ac.messages = pr.count;
+    ac.rssi = pr.level;
     ac.track = pr.cog;
 
-    if (pr.destination) { ac.route = pr.destination; }
-    if (pr.shiptype !== undefined) { ac.t = shortShiptype(pr.shiptype); }
-    // Identify Non-Ship Types
-    if (pr.mmsi_type == 6) { ac.t = "ANAV"; } // Aids to Navigation
-    if (pr.mmsi_type == 5) {ac.t = "BASE"; } // Land Base Station
-    if (pr.mmsi_type == 3) {ac.t = "COAS"; } // Coast Station
+	// Type / category
+	if (pr.shiptype !== undefined) {
+	    ac.t = shortShiptype(pr.shiptype);
+	    ac.typeDescription = fullShiptype(pr.shiptype);
+	    plane.typeDescription = ac.typeDescription;
+	    plane.typeLong = "";
+	} else if (pr.mmsi_type == 6) {
+	    ac.t = "ANAV";
+	    ac.typeDescription = "Aids to Navigation";
+	    plane.typeDescription = ac.typeDescription;
+	    plane.typeLong = "";
+	} else if (pr.mmsi_type == 5) {
+	    ac.t = "BASE";
+	    ac.typeDescription = "Land Base Station";
+	    plane.typeDescription = ac.typeDescription;
+	    plane.typeLong = "";
+	} else if (pr.mmsi_type == 3) {
+	    ac.t = "COAS";
+	    ac.typeDescription = "Coast Station";
+	    plane.typeDescription = ac.typeDescription;
+	    plane.typeLong = "";
+	} else {
+	    ac.t = "UNKN";
+	    ac.typeDescription = "Unknown";
+	    plane.typeDescription = ac.typeDescription;
+	    plane.typeLong = "";
+	}
 
-
+    // Coordinates
     if (feature.geometry && feature.geometry.coordinates) {
         const coords = feature.geometry.coordinates;
         ac.lat = coords[1];
         ac.lon = coords[0];
         ac.seen_pos = now - pr.last_signal;
     }
-    //console.log(ac);
 
+	// Destination / route
+	if (pr.destination && pr.destination.trim() !== "") {
+	    ac.route = pr.destination;      // internal data for PlaneObject updates
+	    plane.route = pr.destination;   // ensures the popup sees it
+	    plane.destination = pr.destination; // optional reference
+	} else {
+	    ac.route = '';
+	    plane.route = '';               // ensures popup shows blank
+	    plane.destination = '';
+	}
+
+    // Update PlaneObject
     plane.updateData(now, last, ac, false);
 }
-
 let djson;
 let dstring;
 let dresult;
@@ -3597,14 +3672,20 @@ function refreshSelected() {
         jQuery('#selected_squawk2').updateText(selected.squawk);
     }
 
-    if (useRouteAPI) {
-        if (selected.routeString) {
-            jQuery('#selected_route').updateText(selected.routeString);
-            jQuery('#selected_route').attr('title', selected.routeVerbose);
-        } else {
-            jQuery('#selected_route').updateText('n/a');
-        }
-    }
+	if (selected) {
+	    if (useRouteAPI && selected.routeString) {
+	        jQuery('#selected_route').updateText(selected.routeString);
+	        jQuery('#selected_route').attr('title', selected.routeVerbose);
+	    }
+	    // AIS fallback
+	    else if (selected.dataSource === 'ais' && selected.destination) {
+	        jQuery('#selected_route').updateText(selected.destination);
+	        jQuery('#selected_route').attr('title', selected.destination);
+	    } else {
+	        jQuery('#selected_route').updateText('');
+	        jQuery('#selected_route').removeAttr('title');
+	    }
+	}
 
     let magResult = null;
 
@@ -3908,13 +3989,17 @@ function refreshHighlighted() {
         jQuery('#highlighted_icaotype').text("n/a");
     }
 
-    if (useRouteAPI) {
-        if (highlighted.routeString) {
-            jQuery('#highlighted_route').updateText(highlighted.routeString);
-        } else {
-            jQuery('#highlighted_route').updateText('n/a');
-        }
-    }
+	if (highlighted) {
+	    if (useRouteAPI && highlighted.routeString) {
+	        jQuery('#highlighted_route').updateText(highlighted.routeString);
+	    }
+	    // AIS fallback
+	    else if (highlighted.dataSource === 'ais' && highlighted.destination) {
+	        jQuery('#highlighted_route').updateText(highlighted.destination);
+	    } else {
+	        jQuery('#highlighted_route').updateText('');
+	    }
+	}
 
     jQuery('#highlighted_source').text(format_data_source(highlighted.getDataSource()));
 
@@ -4035,20 +4120,31 @@ function refreshFeatures() {
         },
         html: flightawareLinks,
         text: 'Callsign' };
-    if (routeApiUrl) {
-        cols.route = {
-            sort: function () { sortBy('route', compareAlpha, function(x) { return x.routeColumn }); },
-            value: function(plane) {
-                if (!useRouteAPI) return '';
-                if (plane.routeString) {
-                    return '<span title="' + plane.routeVerbose + '">' + plane.routeColumn + '</span>';
-                } else {
-                    return '';
-                }
-            },
-            html: true,
-            text: 'Route' };
-    }
+	if (routeApiUrl) {
+	    cols.route = {
+	        sort: function () { 
+	            sortBy('route', compareAlpha, function(x) { return x.routeColumn }); 
+	        },
+	        value: function(plane) {
+	            if (!useRouteAPI) return '';
+
+	            // Standard aircraft route
+	            if (plane.routeString) {
+	                return '<span title="' + plane.routeVerbose + '">' + plane.routeColumn + '</span>';
+	            }
+
+	            // AIS vessels fallback
+	            if (plane.dataSource === 'ais' && plane.destination) {
+	                return '<span title="' + plane.destination + '">' + plane.destination + '</span>';
+	            }
+
+	            // Empty if no destination
+	            return '';
+	        },
+	        html: true,
+	        text: 'Route/Destination'
+	    };
+	}
     cols.registration = {
         sort: function () { sortBy('registration', compareAlpha, function(x) { return x.registration; }); },
         value: function(plane) { return (flightawareLinks ? getFlightAwareIdentLink(plane.registration, plane.registration) : (plane.registration ? plane.registration : "")); },
