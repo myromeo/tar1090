@@ -6081,11 +6081,11 @@ function updateVisible() {
         // 1. Identify if the asset is a marine vessel
         const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
         
-        // 2. Data Injection: Force native military tracking if it meets ship type thresholds
-        if (isShip && plane.ship_type <= 35) {
-            plane.mil = true;
-            plane.military = true; // Sets alignment with native onlyMilitary logic
-        }
+        // 2. Data Injection: Force native military tracking if ship type is military, police, and law enforcement
+		if (isShip && (plane.ship_type === 35 || plane.ship_type === 54 || plane.ship_type === 55)) {
+		    plane.mil = true;
+		    plane.military = true;
+		}
 
         // 3. Run native tar1090 tracking systems
         plane.updateVisible();
