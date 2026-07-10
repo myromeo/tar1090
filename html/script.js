@@ -45,6 +45,8 @@ let SelectedPlane = null;
 let sp = null;
 let SelPlanes = [];
 let SelectedAllPlanes = false;
+window.ShowMarine = true;
+window.ShowAir = true;
 let HighlightedPlane = null;
 let FollowSelected = false;
 let followPos = [];
@@ -4750,6 +4752,27 @@ function selectPlaneByHex(hex, options) {
     return newPlane !== undefined;
 }
 
+// Custom M and A display 
+function toggleMarine() {
+    window.ShowMarine = !window.ShowMarine;
+    if (window.ShowMarine) {
+        $('#M').removeClass('inActiveButton').addClass('activeButton');
+    } else {
+        $('#M').removeClass('activeButton').addClass('inActiveButton');
+    }
+    refreshFilter();
+}
+
+function toggleAir() {
+    window.ShowAir = !window.ShowAir;
+    if (window.ShowAir) {
+        $('#A').removeClass('inActiveButton').addClass('activeButton');
+    } else {
+        $('#A').removeClass('activeButton').addClass('inActiveButton');
+    }
+    refreshFilter();
+}
+
 // loop through the planes and mark them as selected to show the paths for all planes
 function selectAllPlanes() {
     HighlightedPlane = null;
@@ -5080,13 +5103,47 @@ function toggleIsolation(state, noRefresh) {
     fetchData({force: true});
 }
 
-function toggleMilitary() {
-    onlyMilitary = !onlyMilitary;
-    buttonActive('#U', onlyMilitary);
+function toggleMarine() {
+    window.ShowMarine = !window.ShowMarine;
+    if (window.ShowMarine) {
+        $('#M').removeClass('inActiveButton').addClass('activeButton');
+    } else {
+        $('#M').removeClass('activeButton').addClass('inActiveButton');
+    }
+    refreshSelectedPlane();
+    refresh();
+}
 
-    refreshFilter();
-    active();
-    fetchData({force: true});
+function toggleAir() {
+    window.ShowAir = !window.ShowAir;
+    if (window.ShowAir) {
+        $('#A').removeClass('inActiveButton').addClass('activeButton');
+    } else {
+        $('#A').removeClass('activeButton').addClass('inActiveButton');
+    }
+    refreshSelectedPlane();
+    refresh();
+}
+
+function toggleMilitary() {
+    MilitariesOnly = !MilitariesOnly;
+    if (MilitariesOnly) {
+        $('#U').removeClass('inActiveButton');
+        $('#U').addClass('activeButton');
+        // Task 2: Force marine tracking off when turning Military filter ON
+        if (window.ShowMarine) {
+            toggleMarine();
+        }
+    } else {
+        $('#U').removeClass('activeButton');
+        $('#U').addClass('inActiveButton');
+        // Optional: Re-enable marine tracking automatically when turning Military filter OFF
+        if (!window.ShowMarine) {
+            toggleMarine();
+        }
+    }
+    refreshSelectedPlane();
+    refresh();
 }
 
 function togglePersistence() {
@@ -5999,6 +6056,22 @@ function refreshFilter() {
 }
 
 
+function customCheckPlaneFilter(plane) {
+    // Ultrafeeder pipes vessels intoReadsB. They are identified via plane.dataSource === 'ais'
+    // or by evaluating non-standard structural properties (like v.type === 'ship' or type data)
+    const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
+
+    // If Marine Button is off and it's a ship, hide it
+    if (!window.ShowMarine && isShip) return false;
+    // If Aircraft Button is off and it's a plane, hide it
+    if (!window.ShowAir && !isShip) return false;
+
+    // Task Two: If Military Mode button is toggled ON, force hide all ships
+    if (onlyMilitary && isShip) return false;
+
+    return true;
+}
+
 function updateVisible() {
     if (mapIsVisible || !lastRenderExtent) {
         lastRenderExtent = getRenderExtent();
@@ -6006,7 +6079,15 @@ function updateVisible() {
     aircraftShown = 0;
     for (let i in g.planesOrdered) {
         const plane = g.planesOrdered[i];
+        
+        // Run standard visibility calculation first
         plane.updateVisible();
+        
+        // Intercept with our new custom filter rules
+        if (!customCheckPlaneFilter(plane)) {
+            plane.visible = false;
+        }
+
         aircraftShown += (plane.visible && plane.inView);
     }
     checkScale();
