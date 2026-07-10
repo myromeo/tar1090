@@ -5126,21 +5126,11 @@ function toggleAir() {
 }
 
 function toggleMilitary() {
-    MilitariesOnly = !MilitariesOnly;
-    if (MilitariesOnly) {
-        $('#U').removeClass('inActiveButton');
-        $('#U').addClass('activeButton');
-        // Task 2: Force marine tracking off when turning Military filter ON
-        if (window.ShowMarine) {
-            toggleMarine();
-        }
+    onlyMilitary = !onlyMilitary; // Original state variable alignment
+    if (onlyMilitary) {
+        $('#U').removeClass('inActiveButton').addClass('activeButton');
     } else {
-        $('#U').removeClass('activeButton');
-        $('#U').addClass('inActiveButton');
-        // Optional: Re-enable marine tracking automatically when turning Military filter OFF
-        if (!window.ShowMarine) {
-            toggleMarine();
-        }
+        $('#U').removeClass('activeButton').addClass('inActiveButton');
     }
     refreshSelectedPlane();
     refresh();
@@ -6057,17 +6047,25 @@ function refreshFilter() {
 
 
 function customCheckPlaneFilter(plane) {
-    // Ultrafeeder pipes vessels intoReadsB. They are identified via plane.dataSource === 'ais'
-    // or by evaluating non-standard structural properties (like v.type === 'ship' or type data)
+    // Identify if the asset is a vessel
     const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
+    const isMilitary = (plane.mil === true);
 
-    // If Marine Button is off and it's a ship, hide it
+    // MATRIX MODE 1: Military Modifier Is ON (U Button Active)
+    if (onlyMilitary) {
+        // If it's a ship, show it ONLY if Marine (M) is enabled AND it's military
+        if (isShip) {
+            return (window.ShowMarine && isMilitary);
+        }
+        // If it's an aircraft, show it ONLY if Air (A) is enabled AND it's military
+        else {
+            return (window.ShowAir && isMilitary);
+        }
+    }
+
+    // MATRIX MODE 2: Standard Operation (U Button Inactive)
     if (!window.ShowMarine && isShip) return false;
-    // If Aircraft Button is off and it's a plane, hide it
     if (!window.ShowAir && !isShip) return false;
-
-    // Task Two: If Military Mode button is toggled ON, force hide all ships
-    if (onlyMilitary && isShip) return false;
 
     return true;
 }
