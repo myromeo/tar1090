@@ -6078,17 +6078,45 @@ function updateVisible() {
     for (let i in g.planesOrdered) {
         const plane = g.planesOrdered[i];
         
-        // Run standard visibility calculation first
+        // 1. Identify if the asset is a marine vessel
+        const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
+        
+        // 2. Data Injection: Force native military tracking if it meets ship type thresholds
+        if (isShip && plane.ship_type <= 35) {
+            plane.mil = true;
+            plane.military = true; // Sets alignment with native onlyMilitary logic
+        }
+
+        // 3. Run native tar1090 tracking systems
         plane.updateVisible();
         
-        // Intercept with our new custom filter rules
-        if (!customCheckPlaneFilter(plane)) {
+        // 4. Run your exact 3-state visibility matrix check
+        if (!customCheckPlaneFilter(plane, isShip)) {
             plane.visible = false;
         }
 
         aircraftShown += (plane.visible && plane.inView);
     }
     checkScale();
+}
+
+function customCheckPlaneFilter(plane, isShip) {
+    const isMilitary = (plane.mil === true);
+
+    // MATRIX MODE 1: U Button Is Active (Military Filter ON)
+    if (onlyMilitary) {
+        if (isShip) {
+            return (window.ShowMarine && isMilitary);
+        } else {
+            return (window.ShowAir && isMilitary);
+        }
+    }
+
+    // MATRIX MODE 2: Standard Operation (U Button Inactive)
+    if (!window.ShowMarine && isShip) return false;
+    if (!window.ShowAir && !isShip) return false;
+
+    return true;
 }
 
 function mapRefresh(redraw) {
