@@ -6082,7 +6082,7 @@ function updateVisible() {
         const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
         
         // 2. Data Injection: Force native military tracking if ship type is military, police, and law enforcement
-		if (isShip && (plane.ship_type === 35 || plane.ship_type === 54 || plane.ship_type === 55)) {
+		if (isShip && (plane.ship_type === 35 || plane.ship_type === 55 || plane.ship_type === 51 || plane.ship_type === 58)) {
 		    plane.mil = true;
 		    plane.military = true;
 		}
