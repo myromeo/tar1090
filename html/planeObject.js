@@ -287,6 +287,13 @@ PlaneObject.prototype.isFiltered = function() {
         return true;
     }
 
+	if (
+	    onlyEmergency &&
+	    !["7500", "7600", "7700"].includes(this.squawk)
+	) {
+	    return true;
+	}
+
     if (nogpsOnly && !this.nogps) {
         return true;
     }
