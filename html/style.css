@@ -925,3 +925,11 @@ input{
 #replaySpeedHint{
   grid-area: speedHint;
 }
+#E.emergencyAlert {
+    animation: flashEmergency 1.3s infinite;
+}
+
+@keyframes flashEmergency {
+    0%, 100% { background-color: #d40000; border-color: #ff7777; }
+    50% { background-color: #500000; border-color: #330000; }
+}
