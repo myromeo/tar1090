@@ -64,6 +64,8 @@ g.enableLabels = false;
 g.extendedLabels = 0;
 let mapIsVisible = true;
 let onlyMilitary = false;
+let onlyEmergency = false;
+let emergencyButtonTimer = null;
 let onlySelected = false;
 let debug = false;
 let debugJump = false;
@@ -3197,9 +3199,9 @@ function initMap() {
             case "b":
                 toggles['MapDim'].toggle();
                 break;
-            case "m":
-                toggleMultiSelect();
-                break;
+				//case "m":
+                //toggleMultiSelect();
+                //break;
             case "v":
                 toggleTableInView();
                 break;
@@ -5183,6 +5185,42 @@ function toggleMilitary() {
     if (typeof fetchData === 'function') fetchData({force: true});
 }
 
+function toggleEmergency() {
+    onlyEmergency = !onlyEmergency;
+    buttonActive('#E', onlyEmergency);
+
+    // Hide the separate AIS overlay while Emergency mode is active.
+    if (
+        typeof g !== 'undefined' &&
+        g.aiscatcherLayer &&
+        typeof g.aiscatcherLayer.changed === 'function'
+    ) {
+        g.aiscatcherLayer.changed();
+    }
+
+    refreshFilter();
+    active();
+    fetchData({ force: true });
+}
+
+function updateEmergencyButtonAlert() {
+    const button = document.getElementById('E');
+    if (!button) return;
+
+    const emergencySquawks = ["7500", "7600", "7700"];
+    const hasEmergency = g.planesOrdered.some(plane => 
+        emergencySquawks.includes(String(plane.squawk))
+    );
+
+    if (hasEmergency) {
+        if (!button.classList.contains('emergencyAlert')) {
+            button.classList.add('emergencyAlert');
+        }
+    } else {
+        button.classList.remove('emergencyAlert');
+    }
+}
+
 function togglePersistence() {
     noVanish = !noVanish;
     //filterTracks = noVanish;
@@ -6113,10 +6151,18 @@ function updateVisible() {
 
         aircraftShown += (plane.visible && plane.inView);
     }
+	updateEmergencyButtonAlert();
     checkScale();
 }
 
 function customCheckPlaneFilter(plane, isShip) {
+
+	const isEmergency = ["7500", "7600", "7700"].includes(plane.squawk);
+
+	if (onlyEmergency && !isEmergency) {
+	    return false;
+	}
+	
     const isMilitary = !!plane.military;
 
     if (onlyMilitary && !isMilitary) {
