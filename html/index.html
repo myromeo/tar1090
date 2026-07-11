@@ -1,4 +1,4 @@
-﻿<!DOCTYPE HTML>
+<!DOCTYPE HTML>
 <html>
   <head>
     <meta name="description" content="tar1090 - ADS-B plane tracking interface">
@@ -170,14 +170,6 @@
                   <div class="infoData">
                     <span title="Country of registration" id="selected_country">n/a</span>
                   </div>
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="infoHeading">
-                    <span title="Database flags (military / PIA / LAD)">DB flags: </span>
-                  </div>
-                  <div class="infoData"><span id="selected_dbFlags">n/a</span></div>
                 </td>
               </tr>
               <tr>
@@ -786,7 +778,7 @@
           <div class="buttonContainer">
             <span id="M" title="Toggle (M)arine / Ships" class="button activeButton" onclick="toggleMarine();"><span class="buttonText">M</span></span>
             <span id="A" title="Toggle (A)ir / Aircraft" class="button activeButton" onclick="toggleAir();"><span class="buttonText">A</span></span>
-            <span id="U" title="only show the U2 and other military planes" class="button inActiveButton" onclick="toggleMilitary();"><span class="buttonText">U</span></span>
+            <span id="U" title="only show military, search & rescue and law enforcement traffic" class="button inActiveButton" onclick="toggleMilitary();"><span class="buttonText">U</span></span>
             <span id="H" title="(H)ome / Reset Map" class="button inActiveButton" onclick="resetMap();"><span class="buttonText">H</span></span>
             <span id="T" title="All (T)racks" class="button inActiveButton" onclick="selectAllPlanes();"><span class="buttonText">T</span></span>
           </div>
@@ -881,16 +873,15 @@
                 </td>
               </tr>
 
-              <tr class="infoblock_heading">
-                <td style="text-align: right" class="infoBlockTitleText">
-                  <span id="webinterface_pre"></span>
-                  <span class="link"><a href="https://github.com/wiedehopf/tar1090#tar1090" target="_blank" id="webinterface_link">tar1090</a></span>
-                  <span id="webinterface_version"></span>
-                  <span id="decoder_pre"></span>
-                  <span class="link"><a href="" target="_blank" id="decoder_link"></a></span>
-                  <span id="decoder_version"></span>
-                </td>
-              </tr>
+			  <tr class="infoblock_heading">
+			    <td style="text-align: right" class="infoBlockTitleText">
+			      <a href="https://www.mlat.uk" target="_blank" id="webinterface_link">
+			        <img src="https://www.mlat.uk/user/themes/quark/images/logo/mlat%20uk%20logo%20new.png"
+			             alt="mlat.uk"
+			             style="height:36px; vertical-align:right;">
+			      </a>
+			    </td>
+			  </tr>
               <tr class="rSpacer">
                 <td></td>
               </tr>
