@@ -776,9 +776,10 @@
         </div>
         <div id="header_top" class="infoHeading">
           <div class="buttonContainer">
-            <span id="M" title="Toggle (M)arine / Ships" class="button activeButton" onclick="toggleMarine();"><span class="buttonText">M</span></span>
-            <span id="A" title="Toggle (A)ir / Aircraft" class="button activeButton" onclick="toggleAir();"><span class="buttonText">A</span></span>
+            <span id="M" title="Toggle Marine / Ships" class="button activeButton" onclick="toggleMarine();"><span class="buttonText">M</span></span>
+            <span id="A" title="Toggle Air / Aircraft" class="button activeButton" onclick="toggleAir();"><span class="buttonText">A</span></span>
             <span id="U" title="only show military, search & rescue and law enforcement traffic" class="button inActiveButton" onclick="toggleMilitary();"><span class="buttonText">U</span></span>
+			<span id="E" title="only show emergency" class="button inActiveButton" onclick="toggleEmergency();"><span class="buttonText">E</span></span>
             <span id="H" title="(H)ome / Reset Map" class="button inActiveButton" onclick="resetMap();"><span class="buttonText">H</span></span>
             <span id="T" title="All (T)racks" class="button inActiveButton" onclick="selectAllPlanes();"><span class="buttonText">T</span></span>
           </div>
@@ -802,7 +803,7 @@
             <div class="buttonSpacer">
             </div>
             <div style="display: none" id="V" title="Table: only show aircraft in current (V)iew" class="button inActiveButton" onclick="toggleTableInView();"><span class="buttonText">V</span></div>
-            <div id="M" title="Toggle (M)ultiSelect" class="button inActiveButton" onclick="toggleMultiSelect();"><span class="buttonText">M</span></div>
+            <div id="M" title="Toggle MultiSelect" class="button inActiveButton" onclick="toggleMultiSelect();"><span class="buttonText">M</span></div>
             <div class="buttonSpacer">
             </div>
             <div id="P" title="(P)ersistence mode" class="button inActiveButton" onclick="togglePersistence();"><span class="buttonText">P</span></div>
