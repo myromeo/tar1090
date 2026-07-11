@@ -2166,9 +2166,15 @@ function updateAIScatcher() {
     });
 
     req.done(function(data) {
-        //console.log(data);
-        g.aiscatcher_source.setUrl("data:text/plain;base64,"+btoa(data));
-        g.aiscatcher_source.refresh();
+        if (g.aiscatcher_source) {
+            const format = new ol.format.GeoJSON();
+            const features = format.readFeatures(data, {
+                featureProjection: OLMap.getView().getProjection()
+            });
+
+            g.aiscatcher_source.clear(true); // "true" prevents unneeded refresh events during the swap
+            g.aiscatcher_source.addFeatures(features);
+        }
 
         if (1 || aiscatcher_test) {
             processAIS(JSON.parse(data));
@@ -2257,6 +2263,18 @@ function processBoat(feature, now, last) {
     const pr = feature.properties;
     const hex = 'MMSI' + pr.mmsi;
 
+    if (!window.ShowMarine) {
+        if (g.planes[hex]) {
+            const plane = g.planes[hex];
+            delete g.planes[hex];
+            const index = g.planesOrdered.indexOf(plane);
+            if (index > -1) g.planesOrdered.splice(index, 1);
+            plane.destroy();
+        }
+        return; 
+    }
+    // ---------------------------------------------------------------------
+
     // Get or create the PlaneObject
     let plane = g.planes[hex];
     if (!plane) {
@@ -2317,6 +2335,15 @@ function processBoat(feature, now, last) {
 	    plane.typeDescription = ac.typeDescription;
 	    plane.typeLong = "";
 	}
+    // Classify interesting maritime vessels for the existing U filter.
+    const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "POLC", "LAW"]);
+    const shipType = Number(pr.shiptype);
+
+    plane.ship_type = Number.isFinite(shipType) ? shipType : null;
+    plane.military = (
+        Number.isFinite(shipType) &&
+        interestingShipTypes.has(shortShiptype(shipType))
+    );
 
     // Coordinates
     if (feature.geometry && feature.geometry.coordinates) {
@@ -4755,22 +4782,37 @@ function selectPlaneByHex(hex, options) {
 // Custom M and A display 
 function toggleMarine() {
     window.ShowMarine = !window.ShowMarine;
+    console.log('Marine traffic visibility toggled to: ' + window.ShowMarine);
+
+    // Update button UI state
     if (window.ShowMarine) {
         $('#M').removeClass('inActiveButton').addClass('activeButton');
+        if (typeof updateAIScatcher === "function") {
+            updateAIScatcher();
+        }
     } else {
         $('#M').removeClass('activeButton').addClass('inActiveButton');
     }
-    refreshFilter();
+
+    // This now forces tar1090 to look at your new logic in planeObject.js
+    if (typeof refreshFilter === 'function') {
+        refreshFilter();
+    }
 }
 
 function toggleAir() {
     window.ShowAir = !window.ShowAir;
+    
+    // Update button UI state
     if (window.ShowAir) {
         $('#A').removeClass('inActiveButton').addClass('activeButton');
     } else {
         $('#A').removeClass('activeButton').addClass('inActiveButton');
     }
-    refreshFilter();
+    
+    if (typeof refreshFilter === 'function') {
+        refreshFilter();
+    }
 }
 
 // loop through the planes and mark them as selected to show the paths for all planes
@@ -5105,35 +5147,40 @@ function toggleIsolation(state, noRefresh) {
 
 function toggleMarine() {
     window.ShowMarine = !window.ShowMarine;
-    if (window.ShowMarine) {
-        $('#M').removeClass('inActiveButton').addClass('activeButton');
-    } else {
-        $('#M').removeClass('activeButton').addClass('inActiveButton');
+    buttonActive('#M', window.ShowMarine);
+
+    // Dynamic hybrid layer toggle for OpenLayers
+    if (g && g.aiscatcherLayer && typeof g.aiscatcherLayer.setVisible === 'function') {
+        g.aiscatcherLayer.setVisible(window.ShowMarine);
     }
-    refreshSelectedPlane();
-    refresh();
+
+    // Force tar1090 to look at planeObject.js and filter the table rows
+    if (typeof refreshFilter === 'function') refreshFilter();
+    if (typeof active === 'function') active();
+    if (typeof fetchData === 'function') fetchData({force: true});
 }
 
 function toggleAir() {
     window.ShowAir = !window.ShowAir;
-    if (window.ShowAir) {
-        $('#A').removeClass('inActiveButton').addClass('activeButton');
-    } else {
-        $('#A').removeClass('activeButton').addClass('inActiveButton');
-    }
-    refreshSelectedPlane();
-    refresh();
+    buttonActive('#A', window.ShowAir); // Uses the built-in helper function from your code
+
+    if (typeof refreshFilter === 'function') refreshFilter();
+    if (typeof active === 'function') active();
+    if (typeof fetchData === 'function') fetchData({force: true});
 }
 
 function toggleMilitary() {
-    onlyMilitary = !onlyMilitary; // Original state variable alignment
-    if (onlyMilitary) {
-        $('#U').removeClass('inActiveButton').addClass('activeButton');
-    } else {
-        $('#U').removeClass('activeButton').addClass('inActiveButton');
+    onlyMilitary = !onlyMilitary;
+    buttonActive('#U', onlyMilitary);
+
+    // Tell OpenLayers to instantly re-evaluate ship styles based on the new onlyMilitary state
+    if (g && g.aiscatcherLayer && typeof g.aiscatcherLayer.changed === 'function') {
+        g.aiscatcherLayer.changed();
     }
-    refreshSelectedPlane();
-    refresh();
+
+    if (typeof refreshFilter === 'function') refreshFilter();
+    if (typeof active === 'function') active();
+    if (typeof fetchData === 'function') fetchData({force: true});
 }
 
 function togglePersistence() {
@@ -6045,31 +6092,6 @@ function refreshFilter() {
     }
 }
 
-
-function customCheckPlaneFilter(plane) {
-    // Identify if the asset is a vessel
-    const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
-    const isMilitary = (plane.mil === true);
-
-    // MATRIX MODE 1: Military Modifier Is ON (U Button Active)
-    if (onlyMilitary) {
-        // If it's a ship, show it ONLY if Marine (M) is enabled AND it's military
-        if (isShip) {
-            return (window.ShowMarine && isMilitary);
-        }
-        // If it's an aircraft, show it ONLY if Air (A) is enabled AND it's military
-        else {
-            return (window.ShowAir && isMilitary);
-        }
-    }
-
-    // MATRIX MODE 2: Standard Operation (U Button Inactive)
-    if (!window.ShowMarine && isShip) return false;
-    if (!window.ShowAir && !isShip) return false;
-
-    return true;
-}
-
 function updateVisible() {
     if (mapIsVisible || !lastRenderExtent) {
         lastRenderExtent = getRenderExtent();
@@ -6080,12 +6102,6 @@ function updateVisible() {
         
         // 1. Identify if the asset is a marine vessel
         const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
-        
-        // 2. Data Injection: Force native military tracking if ship type is military, police, and law enforcement
-		if (isShip && (plane.ship_type === 35 || plane.ship_type === 55 || plane.ship_type === 51 || plane.ship_type === 58)) {
-		    plane.mil = true;
-		    plane.military = true;
-		}
 
         // 3. Run native tar1090 tracking systems
         plane.updateVisible();
@@ -6101,20 +6117,19 @@ function updateVisible() {
 }
 
 function customCheckPlaneFilter(plane, isShip) {
-    const isMilitary = (plane.mil === true);
+    const isMilitary = !!plane.military;
 
-    // MATRIX MODE 1: U Button Is Active (Military Filter ON)
-    if (onlyMilitary) {
-        if (isShip) {
-            return (window.ShowMarine && isMilitary);
-        } else {
-            return (window.ShowAir && isMilitary);
-        }
+    if (onlyMilitary && !isMilitary) {
+        return false;
     }
 
-    // MATRIX MODE 2: Standard Operation (U Button Inactive)
-    if (!window.ShowMarine && isShip) return false;
-    if (!window.ShowAir && !isShip) return false;
+    if (isShip && !window.ShowMarine) {
+        return false;
+    }
+
+    if (!isShip && !window.ShowAir) {
+        return false;
+    }
 
     return true;
 }
