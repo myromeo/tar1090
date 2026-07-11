@@ -246,6 +246,16 @@ PlaneObject.prototype.logSel = function(loggable) {
 PlaneObject.prototype.isFiltered = function() {
     if (this.selected)
         return false;
+	
+	// 1. If ShowMarine is false, hide any vessel whose ICAO or ID starts with MMSI
+    if (window.ShowMarine === false && typeof this.icao === 'string' && this.icao.startsWith('MMSI')) {
+        return true;
+    }
+
+    // 2. If ShowAir is false, hide regular aircraft (anything that DOES NOT start with MMSI)
+    if (window.ShowAir === false && typeof this.icao === 'string' && !this.icao.startsWith('MMSI')) {
+        return true;
+    }
 
     if (noRegOnly && (
         (this.registration || this.icao.startsWith('~'))
@@ -311,10 +321,10 @@ PlaneObject.prototype.isFiltered = function() {
             return true;
     }
 
-    // filter out blocked MLAT flights
+    // filter out blocked MLAT flights (Changed to always false)
     if (PlaneFilter.blockedMLAT == 'filtered') {
         if (typeof this.icao === 'string' && this.icao.startsWith('~'))
-            return true;
+            return false;
     }
 
     if (this.sitedist && this.sitedist > filterMaxRange)
