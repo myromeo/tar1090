@@ -979,41 +979,66 @@ function createBaseLayers() {
 		        name: "aiscatcher",
 		        zIndex: 100,
 		        source: g.aiscatcher_source,
-		        style: feature => {
-		            const styles = [];
+				style: feature => {
+				            const props = feature.getProperties();
+            
+				            // Extract using OpenLayers direct feature getter
+							const shipclass = feature.get('shipclass') || props.shipclass || props.ship_type || props.type;
 
-		            // Marker
-		            const cog = feature.get('cog');
-		            const rotation = (cog || 0) * Math.PI / 180;
-		            const shipclass = feature.get('shipclass');
-		            const speed = feature.get('speed');
-		            const ofs = aiscatcher_mapping[shipclass]?.offset || [0,0];
-		            const size = aiscatcher_mapping[shipclass]?.size || [20,20];
-		            let o = (speed && speed > 0.5) ? [ofs[0],0] : ofs;
+							// shipclass is an icon index; shiptype is the actual AIS vessel type.
+							const rawShipType = feature.get('shiptype') ?? props.shiptype;
+							const shipType = Number(rawShipType);
 
-		            styles.push(new ol.style.Style({
-		                image: new ol.style.Icon({
-		                    src: aiscatcher_server + '/icons.png',
-		                    anchor: [0.5, 0.5],
-		                    rotation: rotation,
-		                    size: size,
-		                    offset: o
-		                })
-		            }));
+				            // --- THE 3-STATE VISIBILITY MATRIX FOR OPENLAYERS ---
+            
+				            // State 1: Global Marine Toggle is OFF -> Hide everything
+				            if (window.ShowMarine === false) {
+				                return []; 
+				            }
 
-		            // Outline
-		            if (OLMap.getView().getZoom() >= 13) {
-		                const coords = getShipOutline(feature);
-		                if (coords) {
-		                    styles.push(new ol.style.Style({
-		                        geometry: new ol.geom.LineString(coords),
-		                        stroke: new ol.style.Stroke({ color: '#808080', width: 2 })
-		                    }));
-		                }
-		            }
+				            // State 2: Military/SAR Filter is ON
+							if (onlyMilitary) {
+							    const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "POLC", "LAW"]);
+							    const typeString = shortShiptype(shipType);
 
-		            return styles;
-		        }
+							    if (!interestingShipTypes.has(typeString)) {
+							        return [];
+							    }
+							}
+
+				            const styles = [];
+
+				            // Marker Configuration (Duplicate declarations removed safely here)
+				            const cog = feature.get('cog');
+				            const rotation = (cog || 0) * Math.PI / 180;
+				            const speed = feature.get('speed');
+				            const ofs = aiscatcher_mapping[shipclass]?.offset || [0,0];
+				            const size = aiscatcher_mapping[shipclass]?.size || [20,20];
+				            let o = (speed && speed > 0.5) ? [ofs[0],0] : ofs;
+
+				            styles.push(new ol.style.Style({
+				                image: new ol.style.Icon({
+				                    src: aiscatcher_server + '/icons.png',
+				                    anchor: [0.5, 0.5],
+				                    rotation: rotation,
+				                    size: size,
+				                    offset: o
+				                })
+				            }));
+
+				            // Outline Configuration
+				            if (OLMap.getView().getZoom() >= 13) {
+				                const coords = getShipOutline(feature);
+				                if (coords) {
+				                    styles.push(new ol.style.Style({
+				                        geometry: new ol.geom.LineString(coords),
+				                        stroke: new ol.style.Stroke({ color: '#808080', width: 2 })
+				                    }));
+				                }
+				            }
+
+				            return styles;
+				        }
 		    });
 
 		    world.push(g.aiscatcherLayer);
