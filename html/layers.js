@@ -988,15 +988,18 @@ function createBaseLayers() {
 							// shipclass is an icon index; shiptype is the actual AIS vessel type.
 							const rawShipType = feature.get('shiptype') ?? props.shiptype;
 							const shipType = Number(rawShipType);
-
-				            // --- THE 3-STATE VISIBILITY MATRIX FOR OPENLAYERS ---
             
-				            // State 1: Global Marine Toggle is OFF -> Hide everything
-				            if (window.ShowMarine === false) {
-				                return []; 
-				            }
+							// Marine off: hide AIS overlay.
+							if (window.ShowMarine === false) {
+							    return [];
+							}
 
-				            // State 2: Military/SAR Filter is ON
+							// Emergency mode is aircraft-only.
+							if (onlyEmergency) {
+							    return [];
+							}
+
+							// Military mode: retain only operational vessel classes.
 							if (onlyMilitary) {
 							    const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "POLC", "LAW"]);
 							    const typeString = shortShiptype(shipType);
