@@ -1,16 +1,21 @@
-# tar1090
+# tar1090 — unified air and maritime tracking
 
+![tar1090 interface](https://raw.githubusercontent.com/myromeo/tar1090/screenshots/screenshot3.png)
 
-![Screenshot1](https://raw.githubusercontent.com/wiedehopf/tar1090/screenshots/screenshot3.png)
+An integrated situational-awareness interface for ADS-B air traffic and AIS maritime traffic. It builds on the excellent original work by [wiedehopf](https://github.com/wiedehopf/tar1090), while extending tar1090 with a tightly integrated AIS Catcher layer and consistent filtering.
 
-Provides an improved webinterface for use with ADS-B decoders readsb / dump1090-fa
+Key capabilities include:
 
-- Improved adjustable history
-- Show All Tracks much faster than original with many planes
-- Multiple Maps available
-- Map can be dimmed/darkened
-- Multiple aircraft can be selected
-- Labels with the callsign can be switched on and off
+- Unified ADS-B and AIS traffic on one map and in one traffic table
+- Independent Air and Marine controls; enable either feed or both together
+- A military/operational filter that works across both domains
+  - Air + Military: military aircraft
+  - Marine + Military: military, SAR, airborne-SAR, pollution-control, and law-enforcement vessels
+  - Air + Marine + Military: the combined operational picture
+- AIS Catcher vessel overlays with vessel-type-aware styling and filtering
+- Adjustable history, rapid all-track display, multiple map providers, map dimming, multi-select, and optional callsign labels
+
+This repository is maintained at [myromeo/tar1090](https://github.com/myromeo/tar1090). Please use its issues, releases, and installation links for this version.
 
 ## NO WARRANTY
 
@@ -24,7 +29,7 @@ dump1090-mutability installations should work as well, aircraft details will be 
 ## Installation
 
 ```
-sudo bash -c "$(wget -nv -O - https://github.com/wiedehopf/tar1090/raw/master/install.sh)"
+sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/install.sh)"
 ```
 
 ## View the added webinterface
@@ -42,7 +47,7 @@ Check further down for keyboard shortcuts.
 ## Update (same command as installation)
 
 ```
-sudo bash -c "$(wget -nv -O - https://github.com/wiedehopf/tar1090/raw/master/install.sh)"
+sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/install.sh)"
 ```
 
 Configuration should be preserved.
@@ -104,7 +109,7 @@ Documentation and explanation is time consuming to do and as such i choose to li
 
 ## Reporting a bug
 
-If you think you have found a bug, open an issue here on github.
+If you think you have found a bug, open an issue on [myromeo/tar1090](https://github.com/myromeo/tar1090/issues).
 Please check all the buttons and read all the tooltips before you do.
 Try deleting the browser cache for the tar1090 page.
 
@@ -165,14 +170,14 @@ UAT traffic will be displayed as ADS-B, this can't be avoided.
 
 
 ```
-wget -nv -O /tmp/install.sh https://github.com/wiedehopf/tar1090/raw/master/install.sh
+wget -nv -O /tmp/install.sh https://github.com/myromeo/tar1090/raw/master/install.sh
 sudo bash /tmp/install.sh /run/combine1090
 ```
 
 ## Remove / Uninstall
 
 ```
-sudo bash -c "$(wget -nv -O - https://github.com/wiedehopf/tar1090/raw/master/uninstall.sh)"
+sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/uninstall.sh)"
 ```
 
 ## Using the filters
@@ -360,7 +365,7 @@ sudo /usr/local/share/tar1090/getupintheair.sh XXXXX 12192 adsbx
 
 ## /tar1090/?pTracks
 
-![Screenshot2](https://raw.githubusercontent.com/wiedehopf/tar1090/screenshots/screenshot4.png)
+![Screenshot2](https://raw.githubusercontent.com/myromeo/tar1090/screenshots/screenshot4.png)
 
 - Add /?pTracks to the usual /tar1090 URL, should look like this: http://192.168.x.yy/tar1090/?pTracks
 - Shows the last 8 hours of traces you have seen, gives a nice visual representation of your coverage / range
@@ -437,7 +442,7 @@ put in these two lines if you're using dump1090-fa
 
 if you then run the tar1090 install script afterwards you'll have an extra instance you can configure the history retention for.
 ```
-sudo bash -c "$(wget -nv -O - https://github.com/wiedehopf/tar1090/raw/master/install.sh)"
+sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/install.sh)"
 sudo nano /etc/default/tar1090-persist
 ```
 
@@ -527,10 +532,13 @@ When hosting a website with tar1090 via CF, CF needs to respect the various cach
 Change Browser Cache TTL from the default of 4h to "Respect Existing Headers":
 Caching -> Configuration -> Browser Cache TTL -> Respect Existing Headers
 
-## AIS receiver running AIS-catcher:
+## AIS Catcher integration
 
-See the instructions for "[Configuring part 2](#configuring-part-2-the-web-interface-optional)".
-This is the relevant part in the configuration file:
+tar1090 incorporates AIS Catcher traffic directly into the same operational interface as ADS-B traffic. AIS vessels participate in the map, hover/details display, and traffic table rather than being only a separate visual overlay.
+
+Use the Air (`A`) and Marine (`M`) buttons independently. With the Military (`U`) filter enabled, the interface restricts traffic to military aircraft and selected operational maritime categories: airborne SAR, military, SAR, pollution-control, and law-enforcement vessels.
+
+Configure the AIS Catcher endpoint in `config.js` as described in "[Configuring part 2](#configuring-part-2-the-web-interface-optional)":
 ```
 // aiscatcher_server = "http://192.168.1.113:8100"; // update with your server address
 // aiscatcher_refresh = 15; // refresh interval in seconds
