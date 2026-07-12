@@ -2261,6 +2261,23 @@ function capitalizeWords(str) {
     return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
+const aisStatusDescriptions = {
+    "0000": "Under way using engine",
+    "0001": "At anchor",
+    "0002": "Not under command",
+    "0003": "Restricted maneuverability",
+    "0004": "Constrained by her draught",
+    "0005": "Moored",
+    "0006": "Aground",
+    "0007": "Engaged in Fishing",
+    "0008": "Under way sailing",
+    "0014": "AIS-SART Active"
+};
+
+function getStatusDescription(squawk) {
+    return aisStatusDescriptions[squawk] || "";
+}
+
 function processBoat(feature, now, last) {
     const pr = feature.properties;
     const hex = 'MMSI' + pr.mmsi;
@@ -2310,6 +2327,25 @@ function processBoat(feature, now, last) {
     ac.rssi = pr.level;
     ac.track = pr.cog;
 
+	// Map True Heading (511 means 'not available' in AIS)
+    if (pr.heading !== undefined && pr.heading !== 511) {
+        ac.true_heading = pr.heading;
+       // ac.mag_heading = pr.heading;
+    }
+
+	// Write AIS navstatus to plane.squark and pad to four digit
+	if (pr.status !== undefined && pr.status !== 15) {
+	    plane.squawk = pr.status.toString().padStart(4, '0');
+	} else {
+	    plane.squawk = null; 
+	}
+	// Human readable navstatus for UI
+	if (plane.squawk) {
+	    plane.statusDescription = getStatusDescription(plane.squawk);
+	} else {
+	    plane.statusDescription = "";
+	}
+
 	// Type / category
 	if (pr.shiptype !== undefined) {
 	    ac.t = shortShiptype(pr.shiptype);
@@ -2347,6 +2383,19 @@ function processBoat(feature, now, last) {
         interestingShipTypes.has(shortShiptype(shipType))
     );
 
+	// Vessel dimensions
+	plane.dims = (pr.to_bow && pr.to_stern) ? (pr.to_bow + pr.to_stern) + 'm x ' + (pr.to_starboard + pr.to_port) + 'm' : null;
+	plane.draught = (pr.draught && pr.draught > 0) ? (pr.draught).toFixed(1) + 'm' : null;
+	
+	// IMO Number (Permanent Hull ID)
+    plane.imo = (pr.imo && pr.imo !== 0) ? pr.imo : null;
+    
+    // Rate of Turn (-128 means 'not available' in AIS)
+    plane.rot = (pr.rot !== undefined && pr.rot !== -128) ? pr.rot : null;
+    
+    // Position Accuracy (1 = High/DGPS, 0 = Low)
+    plane.pac = (pr.pac !== undefined) ? pr.pac : null;
+
     // Coordinates
     if (feature.geometry && feature.geometry.coordinates) {
         const coords = feature.geometry.coordinates;
@@ -2356,15 +2405,29 @@ function processBoat(feature, now, last) {
     }
 
 	// Destination / route
-	if (pr.destination && pr.destination.trim() !== "") {
-	    ac.route = pr.destination;      // internal data for PlaneObject updates
-	    plane.route = pr.destination;   // ensures the popup sees it
-	    plane.destination = pr.destination; // optional reference
-	} else {
-	    ac.route = '';
-	    plane.route = '';               // ensures popup shows blank
-	    plane.destination = '';
-	}
+    if (pr.destination && String(pr.destination).trim() !== "") {
+        const destStr = String(pr.destination).trim();
+        ac.route = destStr;         // internal data for PlaneObject updates
+        plane.route = destStr;      // ensures the popup sees it
+        plane.destination = destStr; // optional reference
+    } else {
+        ac.route = '';
+        plane.route = '';               
+        plane.destination = '';
+    }
+
+    // ETA
+    if (pr.eta_month > 0 && pr.eta_month <= 12 && pr.eta_day > 0) {
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const mo = months[pr.eta_month - 1]; 
+        const da = String(pr.eta_day).padStart(2, '0');
+        const hr = pr.eta_hour !== undefined ? String(pr.eta_hour).padStart(2, '0') : "00";
+        const mi = pr.eta_minute !== undefined ? String(pr.eta_minute).padStart(2, '0') : "00";
+        
+        plane.eta = `${da}-${mo} ${hr}:${mi}`;
+    } else {
+        plane.eta = null;
+    }
 
     // Update PlaneObject
     plane.updateData(now, last, ac, false);
@@ -3702,13 +3765,16 @@ function refreshSelected() {
 
     jQuery('#selected_onground').updateText(format_onground(selected.altitude));
 
-    if (selected.squawk == null || selected.squawk == '0000') {
-        jQuery('#selected_squawk1').updateText('n/a');
-        jQuery('#selected_squawk2').updateText('n/a');
-    } else {
-        jQuery('#selected_squawk1').updateText(selected.squawk);
-        jQuery('#selected_squawk2').updateText(selected.squawk);
-    }
+	// Hide squawk for ais
+	if (selected.dataSource === 'ais') {
+	    jQuery('#squawkRowContainer').hide(); 
+	} else {
+	    // This shows the entire table row
+	    jQuery('#squawkRowContainer').show();
+    
+	    let squawkDisplay = (selected.squawk != null) ? selected.squawk : "n/a";
+	    jQuery('#selected_squawk1').updateText(squawkDisplay);
+	}
 
 	if (selected) {
 	    if (useRouteAPI && selected.routeString) {
@@ -3968,6 +4034,48 @@ function refreshSelected() {
         jQuery('#selected_version').updateText('v' + selected.version);
     }
 
+	// Extended status description
+	if (selected && selected.dataSource === 'ais' && selected.statusDescription) {
+	    jQuery('#selected_status_desc').text(selected.statusDescription);
+	    jQuery('#statusRowSelected').show();
+	} else {
+	    jQuery('#statusRowSelected').hide();
+	}
+
+	// Dimensions
+	if (selected.dataSource === 'ais' && selected.dims) {
+	    jQuery('#selected_dims').text(selected.dims);
+	    jQuery('#dimsRowSelected').show();
+	} else {
+	    jQuery('#dimsRowSelected').hide();
+	}
+
+	// Draught
+	if (selected.dataSource === 'ais' && selected.draught) {
+	    jQuery('#selected_draught').text(selected.draught);
+	    jQuery('#draughtRowSelected').show();
+	} else {
+	    jQuery('#draughtRowSelected').hide();
+	}
+
+	// ETA 
+	if (selected.eta) {
+	    $('#selected_eta').text(selected.eta);
+	    $('#etaRow').removeClass('hidden'); // Shows the row
+	} else {
+	    $('#selected_eta').text('');
+	    $('#etaRow').addClass('hidden');    // Hides the row for planes or ships with no ETA
+	}
+
+	// Hide Aircraft Type and Long Type for AIS
+	if (selected && selected.dataSource === 'ais') {
+	    jQuery('#icaoTypeRowSelected').hide();
+	    jQuery('#typeLongRowSelected').hide();
+	} else {
+	    jQuery('#icaoTypeRowSelected').show();
+	    jQuery('#typeLongRowSelected').show();
+	}
+
     adjustInfoBlock();
 }
 
@@ -4054,6 +4162,25 @@ function refreshHighlighted() {
     jQuery('#highlighted_pf_route').text((highlighted.pfRoute ? highlighted.pfRoute : highlighted.icao.toUpperCase()));
 
     jQuery('#highlighted_rssi').text(highlighted.rssi != null ? highlighted.rssi.toFixed(1) + ' dBFS' : "n/a");
+
+    if (highlighted.dataSource === 'ais' && highlighted.statusDescription) {
+        // Assuming you want to add a row or update an existing element
+        // You can reuse an existing field or inject a new one if you've added it to the HTML
+        jQuery('#highlighted_status_desc').text(highlighted.statusDescription);
+        jQuery('#statusRowHighlight').show();
+    } else {
+        jQuery('#statusRowHighlight').hide();
+    }
+
+	// ETA
+	if (highlighted.eta) {
+	    $('#highlighted_eta').text(highlighted.eta);
+	    $('#etaRowHighlight').removeClass('hidden'); 
+	} else {
+	    $('#highlighted_eta').text('');
+	    $('#etaRowHighlight').addClass('hidden');
+	}
+
 }
 
 function removeHighlight() {
@@ -5195,7 +5322,7 @@ function updateEmergencyButtonAlert() {
     const button = document.getElementById('E');
     if (!button) return;
 
-    const emergencySquawks = ["7500", "7600", "7700"];
+    const emergencySquawks = ["7500", "7600", "7700", "0002"];
     const hasEmergency = g.planesOrdered.some(plane => 
         emergencySquawks.includes(String(plane.squawk))
     );
