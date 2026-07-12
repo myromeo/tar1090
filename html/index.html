@@ -48,6 +48,14 @@
               <div id="routeRowHighlight" class="infoHeading"><span title="Reported flight origin and destination according to adsbdb.com">Route</span>:</div>
               <div class="infoData"><span id="highlighted_route"></span></div>
           </div>
+		  <div id="etaRowHighlight" class="hidden">
+              <div class="infoHeading"><span title="Estimated Time of Arrival reported via AIS">ETA</span>:</div>
+              <div class="infoData"><span id="highlighted_eta"></span></div>
+          </div>
+			<div id="statusRowHighlight" style="display: none;">
+			    <div class="infoHeading">Status:</div>
+			    <div class="infoData"><span id="highlighted_status_desc"></span></div>
+			</div>
           <div class="rSpacer">
           </div>
           <div>
@@ -172,17 +180,17 @@
                   </div>
                 </td>
               </tr>
-              <tr>
-                <td>
-                  <span class="infoHeading" title="ICAO type code (A320/B738)">Type: </span>
-                  <span class="infoData" id="selected_icaotype"></span>
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  <span class="infoData" title="Year of Manufacture / Full Type" id="selected_typelong"></span>
-                </td>
-              </tr>
+			  <tr id="icaoTypeRowSelected">
+			    <td>
+				  <span class="infoHeading" title="ICAO type code (A320/B738)">Type: </span>
+				  <span class="infoData" id="selected_icaotype"></span>
+				</td>
+			  </tr>
+			  <tr id="typeLongRowSelected">
+				<td>
+				  <span class="infoData" title="Year of Manufacture / Full Type" id="selected_typelong"></span>
+				</td>
+			  </tr>
               <tr>
                 <td>
                   <span class="infoData" title="" id="selected_ownop"></span>
@@ -195,15 +203,30 @@
                 </td>
               </tr>
               <tr>
-                <td>
-                  <div class="infoHeading">
-                    <span title="A 4-digit octal code assigned to the aircraft by Air Traffic Control">Squawk</span>:
-                  </div>
-                  <div class="infoData">
-                    <span id="selected_squawk1"></span>
-                  </div>
-                </td>
-              </tr>
+			  <tr id="squawkRowContainer">
+			    <td>
+				  <div class="infoHeading">Squawk:</div>
+			      <div class="infoData"><span id="selected_squawk1"></span></div>
+			    </td>
+			  </tr>
+			  <tr id="statusRowSelected" style="display: none;">
+			    <td>
+			      <div class="infoHeading">Status:</div>
+			      <div class="infoData"><span id="selected_status_desc"></span></div>
+			    </td>
+			  </tr>
+			  <tr id="dimsRowSelected" style="display: none;">
+			    <td>
+			      <div class="infoHeading">Dimensions:</div>
+			      <div class="infoData"><span id="selected_dims"></span></div>
+			    </td>
+			  </tr>
+			  <tr id="draughtRowSelected" style="display: none;">
+			    <td>
+			      <div class="infoHeading">Draught:</div>
+			      <div class="infoData"><span id="selected_draught"></span></div>
+			    </td>
+			  </tr>
               <tr id="routeRow" class="hidden">
                 <td>
                   <div class="infoHeading">
@@ -211,6 +234,16 @@
                   </div>
                   <div class="infoData">
                     <span id="selected_route"></span>
+                  </div>
+                </td>
+              </tr>
+			  <tr id="etaRow" class="hidden">
+                <td>
+                  <div class="infoHeading">
+                    <span title="Estimated Time of Arrival reported via AIS">ETA</span>:
+                  </div>
+                  <div class="infoData">
+                    <span id="selected_eta"></span>
                   </div>
                 </td>
               </tr>
