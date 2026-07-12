@@ -2905,6 +2905,8 @@ function initMap() {
 
     if (globeIndex && aggregator) {
         jQuery('#dump1090_message_rate_td').hide();
+        jQuery('#RP').show();
+
     }
 
     locationDotLayer = new ol.layer.Vector({
@@ -3065,6 +3067,7 @@ function initMap() {
                 root.style.setProperty("--TXTCOLOR3","#a8a8a8");
                 //invert the "x" images
                 jQuery(".infoblockCloseBox").css('filter','invert(100%)');
+				jQuery(".mlatLogo").css('filter','invert(100%)');
                 jQuery(".infoblockCloseBox").css(' -webkit-filter','invert(100%)');
                 jQuery(".settingsCloseBox").css('filter','invert(100%)');
                 jQuery(".settingsCloseBox").css(' -webkit-filter','invert(100%)');
@@ -3076,6 +3079,7 @@ function initMap() {
                 root.style.setProperty("--TXTCOLOR2","#050505");
                 root.style.setProperty("--TXTCOLOR3","#003f4b");
                 jQuery(".infoblockCloseBox").css('filter','invert(0%)');
+				jQuery(".mlatLogo").css('filter','invert(0%)');
                 jQuery(".infoblockCloseBox").css(' -webkit-filter','invert(0%)');
                 jQuery(".settingsCloseBox").css('filter','invert(0%)');
                 jQuery(".settingsCloseBox").css(' -webkit-filter','invert(0%)');
@@ -3235,6 +3239,9 @@ function initMap() {
             case "T":
                 filterTISB = !filterTISB;
                 refreshFilter();
+                break
+            case "Y":
+                showReplayBar();
                 break;
             case "u":
                 toggleMilitary();
@@ -4784,37 +4791,18 @@ function selectPlaneByHex(hex, options) {
 // Custom M and A display 
 function toggleMarine() {
     window.ShowMarine = !window.ShowMarine;
-    console.log('Marine traffic visibility toggled to: ' + window.ShowMarine);
-
-    // Update button UI state
-    if (window.ShowMarine) {
-        $('#M').removeClass('inActiveButton').addClass('activeButton');
-        if (typeof updateAIScatcher === "function") {
-            updateAIScatcher();
-        }
-    } else {
-        $('#M').removeClass('activeButton').addClass('inActiveButton');
-    }
-
-    // This now forces tar1090 to look at your new logic in planeObject.js
-    if (typeof refreshFilter === 'function') {
-        refreshFilter();
-    }
+    // Toggle the class effortlessly using jQuery's .toggleClass
+    $('#M').toggleClass('activeButton inActiveButton');
+    
+    if (typeof updateAIScatcher === "function") updateAIScatcher();
+    if (typeof refreshFilter === 'function') refreshFilter();
 }
 
 function toggleAir() {
     window.ShowAir = !window.ShowAir;
+    $('#A').toggleClass('activeButton inActiveButton');
     
-    // Update button UI state
-    if (window.ShowAir) {
-        $('#A').removeClass('inActiveButton').addClass('activeButton');
-    } else {
-        $('#A').removeClass('activeButton').addClass('inActiveButton');
-    }
-    
-    if (typeof refreshFilter === 'function') {
-        refreshFilter();
-    }
+    if (typeof refreshFilter === 'function') refreshFilter();
 }
 
 // loop through the planes and mark them as selected to show the paths for all planes
@@ -8033,6 +8021,15 @@ function replayClear() {
     reaper(true);
     refreshFilter();
     replayPlanes = {};
+
+    if (window.location.search !== "") {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.pushState({}, document.title, cleanUrl);
+    }
+
+    window.isReplay = false;
+
+    window.location.reload();
 }
 
 function replayGetChunk(ts) {
