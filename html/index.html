@@ -776,8 +776,8 @@
         </div>
         <div id="header_top" class="infoHeading">
           <div class="buttonContainer">
-            <span id="M" title="Toggle Marine / Ships" class="button activeButton" onclick="toggleMarine();"><span class="buttonText">M</span></span>
-            <span id="A" title="Toggle Air / Aircraft" class="button activeButton" onclick="toggleAir();"><span class="buttonText">A</span></span>
+			<span id="M" title="Toggle Marine / Ships" class="button activeButton" onclick="toggleMarine();"><span class="buttonText">M</span></span>
+			<span id="A" title="Toggle Air / Aircraft" class="button activeButton" onclick="toggleAir();"><span class="buttonText">A</span></span>
             <span id="U" title="only show military, search & rescue and law enforcement traffic" class="button inActiveButton" onclick="toggleMilitary();"><span class="buttonText">U</span></span>
 			<span id="E" title="only show emergency" class="button inActiveButton" onclick="toggleEmergency();"><span class="buttonText">E</span></span>
             <span id="H" title="(H)ome / Reset Map" class="button inActiveButton" onclick="resetMap();"><span class="buttonText">H</span></span>
@@ -812,7 +812,7 @@
             </div>
             <div id="R" title="Follow a (R)andom plane!" class="button inActiveButton" onclick="followRandomPlane();"><span class="buttonText">R</span></div>
             <div id="F" title="(F)ollow" class="button inActiveButton" onclick="toggleFollow();"><span class="buttonText">F</span></div>
-          <!--< div id="RP" title="Replay" class="button inActiveButton" onclick="showReplayBar();"><span class="buttonText">RP</span></div>-->
+          	<div id="RP" title="Replay" class="svgButton replayButton" onclick="showReplayBar(); loadReplay(new Date());"><span class="buttonText"></span></div>
           </div>
         </div>
         <div id="altitude_chart" class="ol-unselectable ol-control altitudeFeet">
@@ -876,11 +876,12 @@
 
 			  <tr class="infoblock_heading">
 			    <td style="text-align: right" class="infoBlockTitleText">
-			      <a href="https://www.mlat.uk" target="_blank" id="webinterface_link">
-			        <img src="https://www.mlat.uk/user/themes/quark/images/logo/mlat%20uk%20logo%20new.png"
-			             alt="mlat.uk"
-			             style="height:36px; vertical-align:right;">
-			      </a>
+				<a href="https://www.mlat.uk" target="_blank" id="webinterface_link">
+				  <img src="https://www.mlat.uk/user/themes/quark/images/logo/mlat%20uk%20logo%20new.png"
+				       alt="mlat.uk"
+				       class="mlatLogo" 
+				       style="height:36px; vertical-align:right;">
+				</a>
 			    </td>
 			  </tr>
               <tr class="rSpacer">
