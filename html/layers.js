@@ -1030,21 +1030,57 @@ function createBaseLayers() {
 				            }));
 
 				            // Outline Configuration
-				            if (OLMap.getView().getZoom() >= 13) {
-				                const coords = getShipOutline(feature);
-				                if (coords) {
-				                    styles.push(new ol.style.Style({
-				                        geometry: new ol.geom.LineString(coords),
-				                        stroke: new ol.style.Stroke({ color: '#808080', width: 2 })
-				                    }));
-				                }
-				            }
+				            //if (OLMap.getView().getZoom() >= 13) {
+				            //    const coords = getShipOutline(feature);
+				            //    if (coords) {
+				            //        styles.push(new ol.style.Style({
+				            //            geometry: new ol.geom.LineString(coords),
+				            //           stroke: new ol.style.Stroke({ color: '#222222', width: 2 })
+				            //        }));
+				            //    }
+				            //}
+							// Outline Configuration
+							if (OLMap.getView().getZoom() >= 13) {
+							    const coords = getShipOutline(feature);
+							    if (coords) {
+							        // 1. First, draw the "fill" (Thick light-grey line)
+							        styles.push(new ol.style.Style({
+							            geometry: new ol.geom.LineString(coords),
+							            stroke: new ol.style.Stroke({
+							                color: 'rgba(200, 200, 200, 0.6)', 
+							                width: 5 // Thick "fill"
+							            })
+							        }));
 
+							        // 2. Then, draw the "outline" (Thin dark line on top)
+							        styles.push(new ol.style.Style({
+							            geometry: new ol.geom.LineString(coords),
+							            stroke: new ol.style.Stroke({
+							                color: '#111111', // Very dark/black
+							                width: 1.5 // Thin sharp edge
+							            })
+							        }));
+							    }
+							}
 				            return styles;
 				        }
 		    });
 
 		    world.push(g.aiscatcherLayer);
+
+			setTimeout(() => {
+			    if (typeof OLMap !== 'undefined') {
+			        OLMap.on('movestart', function() {
+			            g.aiscatcherLayer.setOpacity(0.25);
+			        });
+
+			        OLMap.on('moveend', function() {
+			            g.aiscatcherLayer.setOpacity(1.0);
+			        });
+			    } else {
+			        console.error("AIS Catcher: OLMap not found, cannot attach fade listeners.");
+			    }
+			}, 1000); 
 		}
 //end
     layers.push(new ol.layer.Group({
