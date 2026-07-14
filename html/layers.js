@@ -993,12 +993,30 @@ function createBaseLayers() {
 							if (window.ShowMarine === false) {
 							    return [];
 							}
+							
+							// Selection isolation
+							
+						    if (onlySelected && SelectedPlane) {
+						        const rawMmsi = feature.get('mmsi') ?? props.mmsi;
+						        const featureHex = 'MMSI' + rawMmsi;
+						        if (SelectedPlane.icao !== featureHex) {
+						            return [];
+						        }
+						    }
+							
+							// Emergency mode
 
-							// Emergency mode is aircraft-only.
 							if (onlyEmergency) {
-							    return [];
-							}
+							    const rawStatus = feature.get('status') ?? props.status;
+							    const shipStatus = Number(rawStatus);
+    
+							    const emergencyShipStatuses = new Set([2, 14]); 
 
+							    if (!emergencyShipStatuses.has(shipStatus)) {
+							        return []; // Hide normal ships
+							    }
+							}
+							
 							// Military mode: retain only operational vessel classes.
 							if (onlyMilitary) {
 							    const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "POLC", "LAW"]);
