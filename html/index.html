@@ -1,4 +1,4 @@
-<!DOCTYPE HTML>
+﻿<!DOCTYPE HTML>
 <html>
   <head>
     <meta name="description" content="tar1090 - ADS-B plane tracking interface">
@@ -809,8 +809,8 @@
         </div>
         <div id="header_top" class="infoHeading">
           <div class="buttonContainer">
-			<span id="M" title="Toggle Marine / Ships" class="button activeButton" onclick="toggleMarine();"><span class="buttonText">M</span></span>
-			<span id="A" title="Toggle Air / Aircraft" class="button activeButton" onclick="toggleAir();"><span class="buttonText">A</span></span>
+			<span id="A" title="Toggle Air / Aircraft" class="svgButton aircraftButton activeButton" onclick="toggleAir();"><span class="buttonText"></span></span>
+			<span id="Ma" title="Toggle Marine / Ships" class="svgButton marineButton activeButton" onclick="toggleMarine();"><span class="buttonText"></span></span>
             <span id="U" title="only show military, search & rescue and law enforcement traffic" class="button inActiveButton" onclick="toggleMilitary();"><span class="buttonText">U</span></span>
 			<span id="E" title="only show emergency" class="button inActiveButton" onclick="toggleEmergency();"><span class="buttonText">E</span></span>
             <span id="H" title="(H)ome / Reset Map" class="button inActiveButton" onclick="resetMap();"><span class="buttonText">H</span></span>
@@ -840,7 +840,7 @@
             <div class="buttonSpacer">
             </div>
             <div id="P" title="(P)ersistence mode" class="button inActiveButton" onclick="togglePersistence();"><span class="buttonText">P</span></div>
-            <div id="I" title="(I)solate: only show selected aircraft" class="button inActiveButton" onclick="toggleIsolation();"><span class="buttonText">I</span></div>
+            <div id="I" title="(I)solate: only show selected aircraft or vessel" class="button inActiveButton" onclick="toggleIsolation();"><span class="buttonText">I</span></div>
             <div class="buttonSpacer">
             </div>
             <div id="R" title="Follow a (R)andom plane!" class="button inActiveButton" onclick="followRandomPlane();"><span class="buttonText">R</span></div>

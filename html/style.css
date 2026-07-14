@@ -11,6 +11,10 @@
     --TXTCOLOR3: #101010;
 }
 
+a, button, input, select, textarea, .svgButton {
+    -webkit-tap-highlight-color: transparent;
+}
+
 html, body {
     -ms-overflow-style: -ms-autohiding-scrollbar;
     margin: calc( 0px * var(--SCALE));
@@ -462,9 +466,11 @@ select.error, textarea.error, input.error {
     height: calc( 27px * var(--SCALE));
     cursor: pointer;
     background-position: center;
+    background-repeat: no-repeat;
     margin: calc( 2px * var(--SCALE));
     display: inline-block;
     border-radius: calc( 2px * var(--SCALE));
+    position: relative; /* CRITICAL: Keeps the inner icons contained inside the button */
 }
 
 .fullscreenButton {
@@ -477,6 +483,37 @@ select.error, textarea.error, input.error {
     background-size: 120%;
 }
 
+.replayButton {
+    background-image: url('images/replay-white.svg');
+    background-size: 120%;
+} /* CRITICAL: This closing bracket was missing! */
+
+/* --- Pseudo-element setup for the toggles --- */
+.marineButton::after,
+.aircraftButton::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0; /* Fills the button */
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.marineButton { background-image: none; } /* Clear old image */
+.marineButton::after {
+    background-image: url('images/ais-white.svg');
+    background-size: 80%;
+}
+
+.aircraftButton { background-image: none; } /* Clear old image */
+.aircraftButton::after {
+    background-image: url('images/adsb-white.svg');
+    background-size: 80%;
+}
+
+.marineButton.activeButton::after,
+.aircraftButton.activeButton::after {
+    filter: invert(1);
+}
 
 .button {
     background-color: var(--ACCENT);
@@ -932,4 +969,12 @@ input{
 @keyframes flashEmergency {
     0%, 100% { background-color: #d40000; border-color: #ff7777; }
     50% { background-color: #500000; border-color: #330000; }
+}
+
+tr.emergencyRow {
+    animation: flashEmergencyRow 1.3s infinite;
+}
+@keyframes flashEmergencyRow {
+    0%, 100% { background-color: #d40000; color: #fff; }
+    50% { background-color: #500000; color: #fff; }
 }
