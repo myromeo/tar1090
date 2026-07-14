@@ -12,8 +12,8 @@ function PlaneObject(icao) {
     this.country = icaorange.country;
     this.country_code = icaorange.country_code;
 
-    this.numHex = parseInt(icao.replace('~', '1'), 16);
-    this.fakeHex = this.numHex > 16777215; // non-icao hex
+	this.numHex = parseInt(icao.replace('~', '1'), 16);
+	this.fakeHex = icao.startsWith('MMSI') || !Number.isFinite(this.numHex) || this.numHex > 16777215;
 
     // most properties are set via this function so they can be reset easily
     this.setNull();
@@ -289,7 +289,7 @@ PlaneObject.prototype.isFiltered = function() {
 
 	if (
 	    onlyEmergency &&
-	    !["7500", "7600", "7700"].includes(this.squawk)
+	    !(["7500", "7600", "7700"].includes(this.squawk) || this.isShipEmergency === true)
 	) {
 	    return true;
 	}
