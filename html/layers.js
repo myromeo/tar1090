@@ -893,6 +893,14 @@ function createBaseLayers() {
     if (aiscatcher_server == 'disable' || heatmap || replay ) {
         aiscatcher_server = "";
     }
+
+    // No AIS-catcher configured: the Air/Marine split toggle has nothing to
+    // split between, so hide both buttons the same way the AIS layer entry
+    // itself never gets added to the switcher below.
+    if (!aiscatcher_server) {
+        jQuery('#A, #Ma').hide();
+    }
+	
 //start
 	if (aiscatcher_server) {
 
@@ -917,6 +925,9 @@ function createBaseLayers() {
 		        13: { size: [20, 20], offset: [40, 40] }
 		    };
 
+			const emergencyShipStatuses = new Set([2, 14]);
+			const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "LAW"]);
+			
 		    const rad = Math.PI / 180;
 
 		    function offsetLonLat(lon, lat, heading, meters) {
@@ -972,7 +983,6 @@ function createBaseLayers() {
 			    ];
 			}
 
-
 		    g.aiscatcherLayer = new ol.layer.Vector({
 		        type: 'overlay',
 		        title: "AIS Catcher",
@@ -1010,8 +1020,6 @@ function createBaseLayers() {
 							    const rawStatus = feature.get('status') ?? props.status;
 							    const shipStatus = Number(rawStatus);
     
-							    const emergencyShipStatuses = new Set([2, 14]); 
-
 							    if (!emergencyShipStatuses.has(shipStatus)) {
 							        return []; // Hide normal ships
 							    }
@@ -1019,7 +1027,6 @@ function createBaseLayers() {
 							
 							// Military mode: retain only operational vessel classes.
 							if (onlyMilitary) {
-							    const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "POLC", "LAW"]);
 							    const typeString = shortShiptype(shipType);
 
 							    if (!interestingShipTypes.has(typeString)) {

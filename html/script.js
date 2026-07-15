@@ -2363,6 +2363,9 @@ function getStatusDescription(squawk) {
     return aisStatusDescriptions[squawk] || "";
 }
 
+const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "LAW"]);
+const emergencyShipStatuses = new Set([2, 14]);
+
 function processBoat(feature, now, last) {
     const pr = feature.properties;
     const hex = 'MMSI' + pr.mmsi;
@@ -2464,7 +2467,6 @@ function processBoat(feature, now, last) {
 	}
 	
     // Classify interesting maritime vessels for the existing U filter.
-    const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "LAW"]);
     const shipType = Number(pr.shiptype);
 
     plane.ship_type = Number.isFinite(shipType) ? shipType : null;
@@ -2474,7 +2476,6 @@ function processBoat(feature, now, last) {
     );
 
 	// Status 2/14 for Emergency filter
-	const emergencyShipStatuses = new Set([2, 14]);
 	if (pr.status !== undefined) {
 	    plane.isShipEmergency = emergencyShipStatuses.has(Number(pr.status));
 	}
@@ -5072,23 +5073,6 @@ function selectPlaneByHex(hex, options) {
     return newPlane !== undefined;
 }
 
-// Custom M and A display 
-function toggleMarine() {
-    window.ShowMarine = !window.ShowMarine;
-    // Toggle the class effortlessly using jQuery's .toggleClass
-    $('#Ma').toggleClass('activeButton inActiveButton');
-    
-    if (typeof updateAIScatcher === "function") updateAIScatcher();
-    if (typeof refreshFilter === 'function') refreshFilter();
-}
-
-function toggleAir() {
-    window.ShowAir = !window.ShowAir;
-    $('#A').toggleClass('activeButton inActiveButton');
-    
-    if (typeof refreshFilter === 'function') refreshFilter();
-}
-
 // loop through the planes and mark them as selected to show the paths for all planes
 function selectAllPlanes() {
     HighlightedPlane = null;
@@ -5274,7 +5258,7 @@ function adjustInfoBlock() {
         //jQuery('#sidebar_canvas').css('margin-bottom', jQuery('#selected_infoblock').height() + 'px');
         //
         if (mapIsVisible && document.getElementById('map_canvas').clientWidth < parseFloat(jQuery('#selected_infoblock').css('width')) * 3) {
-            jQuery('#selected_infoblock').css('height', '410px');
+            jQuery('#selected_infoblock').css('height', '420px');
            // jQuery('#selected_typedesc').parent().parent().hide();
             jQuery('#credits').css('bottom', '295px');
             jQuery('#credits').css('left', '5px');
