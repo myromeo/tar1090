@@ -5484,7 +5484,8 @@ function updateEmergencyButtonAlert() {
 
     const aircraftEmergencySquawks = ["7500", "7600", "7700"];
     const hasEmergency = g.planesOrdered.some(plane =>
-        aircraftEmergencySquawks.includes(String(plane.squawk)) || plane.isShipEmergency === true
+        plane.inView &&
+        (aircraftEmergencySquawks.includes(String(plane.squawk)) || plane.isShipEmergency === true)
     );
 
     if (hasEmergency) {
