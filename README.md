@@ -1,563 +1,372 @@
-# tar1090 — unified air and maritime tracking
+# tar1090 — Unified Air & Maritime Tracking
 
-![tar1090 interface](https://raw.githubusercontent.com/myromeo/tar1090/screenshots/screenshot3.png)
+![tar1090 interface](docs/screenshot-main.png)
 
-An integrated situational-awareness interface for ADS-B air traffic and AIS maritime traffic. It builds on the excellent original work by [wiedehopf](https://github.com/wiedehopf/tar1090), while extending tar1090 with a tightly integrated AIS Catcher layer and consistent filtering.
+A single situational-awareness map for everything moving around you: aircraft and ships — one map, one traffic table, one set of filters that work consistently across all three.
 
-Key capabilities include:
+This is a fork of [wiedehopf/tar1090](https://github.com/wiedehopf/tar1090), extended with a tightly integrated AIS Catcher layer, drone Remote ID support, cross-domain military/operational filtering, live emergency detection with visual alerting, and a set of reliability and data-handling fixes for AIS's inherently sparse, broadcast-driven data model. All credit for the original ADS-B interface and the excellent underlying architecture goes to wiedehopf — this fork extends it rather than replaces it.
 
-- Unified ADS-B and AIS traffic on one map and in one traffic table
-- Independent Air and Marine controls; enable either feed or both together
-- A military/operational filter that works across both domains
-  - Air + Military: military aircraft
-  - Marine + Military: military, SAR, airborne-SAR, pollution-control, and law-enforcement vessels
-  - Air + Marine + Military: the combined operational picture
-- AIS Catcher vessel overlays with vessel-type-aware styling and filtering
-- Adjustable history, rapid all-track display, multiple map providers, map dimming, multi-select, and optional callsign labels
+Maintained at [myromeo/tar1090](https://github.com/myromeo/tar1090). Please use this repository's issues and releases for anything specific to this fork.
 
-This repository is maintained at [myromeo/tar1090](https://github.com/myromeo/tar1090). Please use its issues, releases, and installation links for this version.
+---
 
-## NO WARRANTY
+## What's different from stock tar1090
 
-See the bottom of this page or the LICENSE for details.
-While striving not to disrupt an existing Raspbian / Debian / Ubuntu installation, this can't be guaranteed.
-This install script assumes Raspbian / Debian / Ubunutu and will not work on systems without apt.
+| Capability | Stock tar1090 | This fork |
+|---|---|---|
+| Aircraft (ADS-B / MLAT / TIS-B / UAT) | ✅ | ✅ |
+| Marine vessels (AIS) | Partial | ✅ Full map, table, hover, and select integration |
+| Military / operational filter | Aircraft only | Aircraft **and** vessels (military, SAR, law enforcement) |
+| Emergency detection & alerting | Aircraft squawks only | Aircraft **and** vessel distress states, with visual flashing scoped to your current view |
+| Single-contact isolation | Aircraft only | Aircraft **and** vessels |
+| Vessel photo lookup | N/A | IMO-first with automatic MMSI fallback |
 
-tar1090 is not a readsb / dump1090-fa replacement, it merely adds an additional webinterface for an existing readsb or dump1090-fa installation.
-dump1090-mutability installations should work as well, aircraft details will be limited though.
+---
+
+## Key Features
+
+### Unified tracking, one interface
+Aircraft and vessels share the same map, the same traffic table, and the same interaction model — select, hover, and filter behave identically regardless of what you're looking at. A vessel isn't a decorative overlay bolted on top; it's a first-class tracked contact.
+
+### Independent Air and Marine controls
+- **`A`** — show/hide aircraft
+- **`Ma`** — show/hide marine vessels
+
+Run either domain on its own, or both together for a combined picture.
+
+### Cross-domain military / operational filter (`U`)
+One toggle, consistent logic across both domains:
+- **Air + `U`** — military aircraft only
+- **Marine + `U`** — military vessels, search & rescue (surface and airborne), and law enforcement vessels
+- **Air + Marine + `U`** — the full operational picture across both
+
+### Live emergency detection and alerting (`E`)
+Recognizes genuine distress states in both domains:
+- Aircraft squawking `7500` / `7600` / `7700`
+- Vessels reporting an AIS navigational status consistent with distress
+
+When an emergency is detected, the **`E` button flashes**, and the corresponding **row in the traffic table flashes** too — no need to scan the whole table to find what triggered it. Alerting is scoped to your **current map view**, so as coverage grows, an emergency on the other side of the world doesn't compete for attention with what's actually happening near you.
+
+### Single-contact isolation (`I`)
+Select any aircraft or vessel and isolate it — every other contact hides on both the map and the table until you clear the selection. Works identically for both domains, and safely does nothing if nothing is currently selected.
+
+### AIS vessel classification
+Full alignment with the official AIS ship-type table (all 100 codes), with concise category tags for table display and map styling. Vessel type, navigational status, destination, and ETA are all handled with AIS's broadcast cadence in mind — static voyage data (name, destination, dimensions, ETA) is broadcast far less often than position updates, so this fork retains the last known value between broadcasts rather than letting the display flicker blank every time a message doesn't happen to include it.
+
+### Vessel photo lookup
+Looks up a vessel photo using its IMO number when available (a stable, permanent identifier), falling back automatically to MMSI-based lookup if no IMO is known or the IMO lookup doesn't return an image. Shows a clear "no image available" message rather than a broken image or a stale image from an unrelated vessel.
+
+### A detail panel that fits what's actually there
+The selected-contact detail panel sizes itself to the amount of information actually available for that specific contact — a fully-detailed vessel shows more, a sparsely-reported one shows less — rather than a fixed box that's sometimes mostly empty and sometimes cuts content off.
+
+---
+
+## A note on data handling
+
+AIS and ADS-B are both open, unauthenticated broadcast protocols — anyone with inexpensive radio hardware can transmit data claiming to be any vessel or aircraft. This fork treats all broadcast-sourced text (vessel names, destinations, callsigns) and third-party API responses as untrusted before rendering them, rather than assuming the network is well-behaved. If you're evaluating whether to run this on a public-facing instance, that's a deliberate design consideration, not an afterthought.
+
+---
 
 ## Installation
 
-```
+```bash
 sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/install.sh)"
 ```
 
-## View the added webinterface
+**Note:** tar1090 is a web interface layered on top of an existing `readsb` or `dump1090-fa` installation — it does not replace your decoder. `dump1090-mutability` installations work too, with more limited aircraft detail.
 
-Click the following URL and replace the IP address with address of your Raspberry Pi:
+## Viewing the interface
 
+Replace the IP address with your device's address:
+
+```
 http://192.168.x.yy/tar1090
+```
 
-If you are curious about your coverage, try this URL:
-
-http://192.168.x.yy/tar1090/?pTracks
-
-Check further down for keyboard shortcuts.
-
-## Update (same command as installation)
+Curious about your coverage? Add `?pTracks`:
 
 ```
+http://192.168.x.yy/tar1090/?pTracks
+```
+
+## Updating
+
+Same command as installation — configuration is preserved:
+
+```bash
 sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/install.sh)"
 ```
 
-Configuration should be preserved.
+## Testing local changes
 
-## Testing changes to tar1090
-
-- Clone the github repo
-- Make changes
-- run `./install.sh test` to install from your local directory
-
-
-## Configuration part 1: History interval and number of snapshots / ptracks duration (optional)
-
-Edit the configuration file to change the interval in seconds and number of history files saved:
+```bash
+git clone <this repo>
+# make your changes
+./install.sh test
 ```
+
+---
+
+## Configuration
+
+### Part 1 — History interval and track retention
+
+```bash
 sudo nano /etc/default/tar1090
 ```
-Ctrl-x to exit, y (yes) and enter to save.
 
-Apply the configuration:
-```
+Edit, save (`Ctrl-X`, `y`, `Enter`), then apply:
+
+```bash
 sudo systemctl restart tar1090
 ```
 
-The duration of the history in seconds can be calculated as interval times history_size.
+History duration in seconds = `interval × history_size`.
 
-## Configuring part 2: the web interface (optional):
+### Part 2 — The web interface (`config.js`)
 
-Remove the // at the start of a line, otherwise the setting will not be used.
-
-```
+```bash
 sudo nano /usr/local/share/tar1090/html/config.js
 ```
 
-Ctrl-x to exit, y (yes) and enter to save.
-Then Ctrl-F5 to refresh the web interface in the browser.
+Uncomment (remove the leading `//`) any setting you want to take effect, save, then hard-refresh the browser (`Ctrl-F5`).
 
-If you somehow broke the interface or want the default config back:
-```
+To restore defaults entirely:
+
+```bash
 sudo rm /usr/local/share/tar1090/html/config.js
 ```
-Then run the install script again.
+…then re-run the install script.
 
-## Home / receiver location:
+### Configuring AIS Catcher
 
-This is set in the decoder, so readsb or dump1090-fa, if you used one of my scripts to install their readme will have further instructions on how to set the location.
-
-## Change Log
-
-The commit log on the github page is the only form of change log.
-If you can't find the commit log or don't understand what it means, you have 3 options:
-- Assume there is no update and use the currently installed version.
-- Run the update script as provided above and let it surprise you!
-- Complain about the lack of a change log and be mocked.
-
-While i make this interface available for others to install and hope you like it,
-i maintain this interface mainly for users who are curious and can figure it out themselves.
-Documentation and explanation is time consuming to do and as such i choose to limit it to the essential.
-
-## Reporting a bug
-
-If you think you have found a bug, open an issue on [myromeo/tar1090](https://github.com/myromeo/tar1090/issues).
-Please check all the buttons and read all the tooltips before you do.
-Try deleting the browser cache for the tar1090 page.
-
-
-## Enable (/disable) FA links in the webinterface (previously enabled by default)
-
-```
-# ENABLE:
-sudo sed -i -e 's?.*flightawareLinks.*?flightawareLinks = true;?' /usr/local/share/tar1090/html/config.js
-# ENABLE if the above doesn't work (updated from previous version)
-echo 'flightawareLinks = true;' | sudo tee -a /usr/local/share/tar1090/html/config.js
-# DISABLE:
-sudo sed -i -e 's?.*flightawareLinks.*?flightawareLinks = false;?' /usr/local/share/tar1090/html/config.js
+```js
+// aiscatcher_server = "http://192.168.1.113:8100"; // update with your server address
+// aiscatcher_refresh = 15; // refresh interval in seconds
 ```
 
-Then F5 to refresh the web interface in the browser.
+Requirements:
+- The address must be reachable from the **browser** viewing the page, not just the server — `localhost`/`127.0.0.1` only works if you're viewing tar1090 from the same machine running AIS-catcher. If tar1090 and AIS-catcher run on the same host, you can use the magic token `HOSTNAME` instead of a literal IP, e.g. `http://HOSTNAME:8100`.
+- AIS-catcher must be started with GeoJSON output enabled: `-N 8100 geojson on`. Confirm it's working by visiting `<aiscatcher_server>/geojson` directly in a browser — you should see raw GeoJSON.
 
-If your instance is not at /tar1090 you'll need to edit the config.js in the approppriate html folder, see "Multiple instances".
-
-## Enable Share links to ADSB-X or other websites using tar1090
+Can also be set per-session via URL parameter, without touching `config.js`:
 ```
-# ENABLE:
-sudo sed -i -e 's?.*shareBaseUrl.*?shareBaseUrl  = "https://globe.adsbexchange.com/";?' /usr/local/share/tar1090/html/config.js
-# ENABLE if the above doesn't work (updated from previous version)
-echo 'shareBaseUrl  = "https://globe.adsbexchange.com/";' | sudo tee -a /usr/local/share/tar1090/html/config.js
-# DISABLE:
-sudo sed -i -e 's?.*shareBaseUrl.*?shareBaseUrl = false;?' /usr/local/share/tar1090/html/config.js
+http://192.168.x.yy/tar1090/?aiscatcher_server=http://192.168.1.113:8100
 ```
+---
 
-If your instance is not at /tar1090 you'll need to edit the config.js in the approppriate html folder, see "Multiple instances".
+## Interface Controls
 
-## UAT receiver running dump978-fa and skyaware978:
-
-See the instructions for "Configuration part 1".
-This is the relevant part in the configuration file:
-```
-# Change to yes to enable UAT/978 display in tar1090
-ENABLE_978=no
-# If running dump978-fa on another computer, modify the IP-address as appropriate.
-URL_978="http://127.0.0.1/skyaware978"
-```
-Open and save as described above in the Configuration section.
-Follow the instructions in the file.
-
-### UAT only configuration
-
-tar1090 running on the same pi as the skyaware978/dump978-fa:
-
-```
-echo /run/skyaware978 tar1090 | sudo tee /etc/default/tar1090_instances
-```
-
-After that run the install script and it should work.
-978 should be disabled in the config file for this configuration.
-UAT traffic will be displayed as ADS-B, this can't be avoided.
-
-### Installation / Update to work with another folder, for example /run/combine1090
-
-
-```
-wget -nv -O /tmp/install.sh https://github.com/myromeo/tar1090/raw/master/install.sh
-sudo bash /tmp/install.sh /run/combine1090
-```
-
-## Remove / Uninstall
-
-```
-sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/uninstall.sh)"
-```
-
-## Using the filters
-
-js regex format, some basics (much more extensive issue available online on javascript regex syntax):
-
-- a single `.` is the wildcard for exactly one character
-- multiple patterns can be combined with or: `|`
-
-### Some examples of useful constructs:
-
-#### Filter by type code:
-
-```
-B737 family: B73. (B73 and any character in the fourth position)
-A320 family: A32.
-B737-900 and B737 Max 9: B739|B39M
-737 family including max: B73.|B3.M
-B737 / A320 families: B73.|B3.M|A32.|A2.N
-Only A320 and B737 models: A32|B73
-Exclude a certain type: ^(?!A320)
-Exclude multiple patterns: ^(?!(A32.|B73.))
-```
-
-#### Filter by type description:
-
-```
-Helicopters: H..
-Landplanes with 2 jet engines: L2J
-Landplanes with any number of piston engines: L.P
-Helicopters any number of turbin engines : H.T
-All turboprop powered things, including turbine helicopters: ..T
-Everything with 4 engines: .4.
-Everything with 2 3 and 4 engines: .2.|.3.|.4.
-```
+| Button | Function |
+|---|---|
+| `A` | Show/hide aircraft |
+| `Ma` | Show/hide marine vessels |
+| `U` | Military/operational filter (aircraft: military only · vessels: military, SAR, law enforcement) |
+| `E` | Flags and flashes when an emergency is detected within your current view |
+| `I` | Isolate the selected contact; hides everything else |
+| `T` | Toggle tracks on/off |
+| `H` | Home / reset map view |
 
 ## Keyboard Shortcuts
 
+- `Q` / `E` — zoom out / in
+- `A` / `D` — move west / east
+- `W` / `S` — move north / south
+- `C` or `Esc` — clear selection
+- `M` — toggle multiselect
+- `T` — select all aircraft
+- `B` — toggle map brightness
 
-- Q and E zoom out and in.
-- A and D move West and East.
-- W and S move North and South.
-- C or Esc clears the selection.
-- M toggles multiselect.
-- T selects all aircraft
-- B toggle map brightness
+## Filters
 
-## URL query parameters (/tar1090/?icao=123456&zoom=5 and similar)
+Type and type-description filters use JavaScript regex.
 
-See [README-query.md](README-query.md)
+**By type code:**
+```
+B737 family: B73.
+A320 family: A32.
+B737-900 and Max 9: B739|B39M
+737 family incl. Max: B73.|B3.M
+B737 / A320 families: B73.|B3.M|A32.|A2.N
+Only A320 and B737: A32|B73
+Exclude a type: ^(?!A320)
+Exclude multiple: ^(?!(A32.|B73.))
+```
 
-## Multiple instances
+**By type description:**
+```
+Helicopters: H..
+2-engine jet landplanes: L2J
+Any piston-engine landplane: L.P
+Turbine helicopters: H.T
+All turboprops incl. helicopters: ..T
+4-engine aircraft: .4.
+2, 3, or 4-engine aircraft: .2.|.3.|.4.
+```
 
-The script can install multiple instances, this is accomplished by first editing `/etc/default/tar1090_instances`:
+## URL Query Parameters
 
-On each line there must be one instance.
-First on the line the source directory where the aircraft.json is located.
-Second on the line the name where you want to access the according website.
-(http://pi/tar1090 or http://pi/combo or http://pi/978 in this example)
+See [README-query.md](README-query.md) for the full reference.
 
-If you want the instance at http://pi/, use webroot as a name.
+Notable ones for this fork:
+- `?aiscatcher_server=http://...` — override the AIS-catcher endpoint for this session
+- `?pTracks` / `?pTracks=2` — show track history (all time, or last N hours)
+- `?heatmap=200000` — heatmap mode, see [Heatmap](#heatmap) below
 
-The main instance needs to be included in this file.
+---
 
-Example file:
+## Multiple Instances
+
+Run several tar1090 instances against different data sources (e.g. separate 1090/978 feeds):
+
+```bash
+sudo nano /etc/default/tar1090_instances
+```
+
+One instance per line: `<source directory> <name>`. Use `webroot` as the name to serve at `/`.
+
 ```
 /run/dump1090-fa tar1090
 /run/combine1090 combo
 /run/skyaware978 978
-/run/dump1090-fa webroot
 ```
 
-After saving that file, just run the install script and it will install/update
-all instances.
+Re-run the install script after saving. Each instance gets its own config at `/etc/default/tar1090-<name>` and its own `config.js` under `/usr/local/share/tar1090/html-<name>/`.
 
-Configuration for each instance will be separate, in the example the config files would be:
-```
-/etc/default/tar1090
-/etc/default/tar1090-combo
-/etc/default/tar1090-978
-/etc/default/tar1090-webroot
+**Removing an instance:** delete its line from `tar1090_instances`, then:
+```bash
+sudo bash /usr/local/share/tar1090/uninstall.sh tar1090-<name>
 ```
 
-The config.js will also have another path, to edit each config:
-```
-sudo nano /usr/local/share/tar1090/html/config.js
-sudo nano /usr/local/share/tar1090/html-combo/config.js
-sudo nano /usr/local/share/tar1090/html-978/config.js
-sudo nano /usr/local/share/tar1090/html-webroot/config.js
-```
+## UAT (978 MHz) Receivers
 
-HTML folders will be:
-```
-/usr/local/share/tar1090/html
-/usr/local/share/tar1090/html-combo
-/usr/local/share/tar1090/html-978
-/usr/local/share/tar1090/html-webroot
-```
-
-The run folder and systemd service will be called tar1090-combo and tar1090-978
-in this example file.
-The main instance is the exception to that rule, having systemd service and run
-directory called just tar1090.
-
-### Removing an instance
-
-For example removing the instance with the name combo and 978:
-
-First remove the corresponding line from `/etc/default/tar1090_instances` and
-save the file so when you update it doesn't get installed again.
-
-Then run the following command adapted to your instance name, you'll need to
-include the tar1090- which is automatically added for the service names:
+If running `dump978-fa`/`skyaware978`:
 
 ```
-sudo bash /usr/local/share/tar1090/uninstall.sh tar1090-combo
-sudo bash /usr/local/share/tar1090/uninstall.sh tar1090-978
+# In /etc/default/tar1090:
+ENABLE_978=no    # set to yes
+URL_978="http://127.0.0.1/skyaware978"
 ```
 
-If the instance was installed with the old method without the tar1090_instances
-file, you'll have to try without the tar1090- before the combo, like this:
-
+For a same-Pi UAT-only setup:
+```bash
+echo /run/skyaware978 tar1090 | sudo tee /etc/default/tar1090_instances
 ```
-sudo bash /usr/local/share/tar1090/uninstall.sh combo
-sudo bash /usr/local/share/tar1090/uninstall.sh 978
-```
+Then run the install script; disable `ENABLE_978` in this case. Note: UAT traffic will display as ADS-B — this is a known upstream limitation, not specific to this fork.
 
-## lighttpd
+## lighttpd / nginx
 
-tar1090 is now available at :8504 by default when using lighttpd. (port 8504)
-
-To display tar1090 at /, add an instance as described above that has the name webroot.
-It will be available at /
-
-
-
-## nginx configuration
-
-If nginx is installed, the install script should give you a configuration file
-you can include.  The configuration needs to go into the appropriate server { }
-section.
-In the usual configuration that means to add this line:
+- **lighttpd:** tar1090 is served at `:8504` by default. Add a `webroot`-named instance (see above) to serve at `/`.
+- **nginx:** include the generated config in your server block:
 ```
 include /usr/local/share/tar1090/nginx-tar1090.conf;
 ```
-in the server { } section of either `/etc/nginx/sites-enabled/default` or `/etc/nginx/conf.d/default.conf` depending on your system configuration.
-Don't forget to restart the nginx service.
+Restart nginx after adding it.
 
-## heywhatsthat.com range outline:
+## Coverage Range Outline (heywhatsthat.com)
 
-To judge the actual range (/?pTracks, see next chapter), one needs to first know what kind of range is even possible for the receiver location. 1090 MHz reception requires a direct line of sight through air to what you want to receive, thus depends on obstacles and the curvature of the earth. To get that theoretical range for a location, follow the guide in this chapter.
-
-#### 1: Create panorama and look at your outline on the heywhatsthat page
-- Visit http://www.heywhatsthat.com/
-- Click "New Panorama"
-- Set the location for your antenna precisely
-- Enter a title / submit the request and wait for it to finish
-- Scroll down to the map, look at the buttons in the top right of the map
-- Use the "up in the air" button on the map, reduce map magnification
-- You can change the altitudes (ft) below the map to view different outlines for your location
-- Those outlines tell you how far you can receive aircraft at the associated altitudes
-- The panorama does not take into account obstacles closer to the antenna than approximately 100 ft, trees are also not considered but can block reception
-
-#### 2: Integrate theoretical range outline into your local tar1090 display
-- For use on the tar1090 map the altitude will be set by changing the download URL
-- Near the top of the page, an URL for the panorama is mentioned.
-- Replace the XXXXXX in the following command with the ID contained in your panorama URL, then run the command on your pi:
-```
+1. Generate a panorama at [heywhatsthat.com](http://www.heywhatsthat.com/) for your exact antenna location.
+2. Run, substituting your panorama ID:
+```bash
 sudo /usr/local/share/tar1090/getupintheair.sh XXXXX
 ```
-- You should now have a range outline for the theoretical range for aircraft at 40000 ft on your tar1090 map
+3. Compare against actual coverage via `?pTracks`.
 
-- It might be interesting to compare to http://192.168.x.yy/tar1090/?pTracks which will by default will display the last 8 hours of traces.
-
-- More options for loading multiple outlines and for a different instance
-```
-# load two outlines, 10000 ft and 40000 ft
+Multiple altitudes, and targeting another instance:
+```bash
 sudo /usr/local/share/tar1090/getupintheair.sh XXXXX 3048,12192
-# load a 10000 ft outline for the tar1090 instance located at /978
 sudo /usr/local/share/tar1090/getupintheair.sh XXXXX 3048 978
-
-# load a 40000 ft outline for the tar1090 instance located at /adsbx
-sudo /usr/local/share/tar1090/getupintheair.sh XXXXX 12192 adsbx
 ```
 
-## /tar1090/?pTracks
+## Track History (`?pTracks`)
 
-![Screenshot2](https://raw.githubusercontent.com/myromeo/tar1090/screenshots/screenshot4.png)
+Shows recent traces to visualize your coverage. Filterable by altitude.
 
-- Add /?pTracks to the usual /tar1090 URL, should look like this: http://192.168.x.yy/tar1090/?pTracks
-- Shows the last 8 hours of traces you have seen, gives a nice visual representation of your coverage / range
-- Can be filtered by altitude with the altitude filter
-- Configure a longer duration than 8 hours via the [configuration](#configuration-part-1-history-interval-and-number-of-snapshots--ptracks-duration-optional)
-- Restrict the duration shown to 2 hours: /tar1090/?pTracks=2
-- Draw less points which reduces display time (higher interval, lower compute time, default 15): /tar1090/?pTracks=8&pTracksInterval=60
+```
+/tar1090/?pTracks         # default duration (configurable, default 8h)
+/tar1090/?pTracks=2       # last 2 hours only
+/tar1090/?pTracks=8&pTracksInterval=60   # fewer points, faster rendering
+```
 
-## 0800-DESTROY-SD-CARD
+### Long-retention history (as used by public aggregators)
 
-History function as used by several online aggregators using tar1090
-(destroy sd-card is a bit of a joke but obviously it will use disk space and create quite a few files, they will be kept indefinitely so if the folder grows too big you'll have to delete old files yourself)
-
-The data is generated by my version of readsb so you'll have to run that:
-<https://github.com/wiedehopf/readsb>
-<https://github.com/wiedehopf/adsb-scripts/wiki/Automatic-installation-for-readsb>
-
-The following command line options need to be added to for example the decoder options in `/etc/default/readsb`
+Requires wiedehopf's `readsb` fork with:
 ```
 --write-globe-history /var/globe_history --heatmap 30
 ```
-Aggregators will generally use `--write-json-globe-index` as well but that's not necessary if you don't have more than 500 concurrent planes.
-
-/var/globe_history needs to be a directory writeable by the user readsb.
-`sudo mkdir /var/globe_history` and `sudo chown readsb /var/globe_history` are useful for that.
-
-You should also download
-```
+`/var/globe_history` must be writable by the `readsb` user. Also grab the aircraft database:
+```bash
 wget -O /usr/local/share/tar1090/aircraft.csv.gz https://github.com/wiedehopf/tar1090-db/raw/csv/aircraft.csv.gz
 ```
+…and add `--db-file /usr/local/share/tar1090/aircraft.csv.gz` to your `readsb` options. This does write continuously to disk — be aware of storage growth over time.
 
-and add this command line option (for exaple via /etc/default/readsb):
-```
---db-file /usr/local/share/tar1090/aircraft.csv.gz
-```
-
-You will also need to point tar1090 to /run/readsb in case you are using another dump1090/readsb.
-See the "multiple instances" readme section.
-
-If you don't want readsb to read data from the SDR, you'll also need to change the receiver options line to something like this:
-```
-RECEIVER_OPTIONS="--net-only --net-connector 192.168.2.7,30005,beast_in"
-```
-If you have another dump1090/readsb running on the same machine, you'll also need to change all the ports to avoid conflicts.
-
-This will obviously write data to the hard drive, be aware of that.
-The data format is subject to change, don't expect this to be stable.
-Be aware of that when upgrading either tar1090 or readsb to a new commit.
-
-If you're using --write-json-globe-index with tar1090, you might be interested in tar1090
-using the readsb API to get data, it's less requests and usually more efficient,
-for details see the file nginx-readsb-api.conf
-(this needs adding to your existing nginx tar1090 configuration, this is only for people who really know their stuff anyway)
-
-## A separate instance with longer data retention for gauging range
-
-If this seems too complicated for you or you don't want a 2nd instance, changing / adding PTRACKS=24 to the /etc/default/tar1090 configuration should also extend the history (for /?pTracks only).
-
-```
+**A dedicated long-retention instance**, e.g. 24h of history:
+```bash
 sudo nano /etc/default/tar1090_instances
 ```
-
-put in these two lines if you're using readsb
 ```
 /run/readsb tar1090
 /run/readsb persist
 ```
-
-put in these two lines if you're using dump1090-fa
-```
-/run/dump1090-fa tar1090
-/run/dump1090-fa persist
-```
-
-if you then run the tar1090 install script afterwards you'll have an extra instance you can configure the history retention for.
-```
+```bash
 sudo bash -c "$(wget -nv -O - https://github.com/myromeo/tar1090/raw/master/install.sh)"
 sudo nano /etc/default/tar1090-persist
 ```
-
-change to these values for 24h of history:
-
 ```
-# Interval at which the track history is saved
 INTERVAL=20
-# How many points in time are stored in the track history
 HISTORY_SIZE=4300
 ```
-
-then
-```
+```bash
 sudo systemctl restart tar1090-persist
 ```
-and the persist instance will start saving more data.
-You can then visit `/persist/?pTracks` instead of `/tar1090` to get the complete 24h history displayed.
-Press T to toggle the traces on and off, this is recommended for zooming and panning as with the traces showing this can be slow.
+Visit `/persist/?pTracks`. Press `T` to toggle traces off while panning/zooming for performance.
 
-(you can also look at /tar1090/?pTracks if you want to look only at the more recent tracks, interval / history can be configured in /etc/tar1090 for that instance)
+## Heatmap
 
-For adding the range outline to the /persist instance after having used the method described earlier, copy over the json:
-
-```
-sudo cp /usr/local/share/tar1090/html/upintheair.json /usr/local/share/tar1090/html-persist
-```
-
-
-## readsb wiedehopf fork --heatmap feature:
-
-/var/globe_history needs to be a directory writeable by the user readsb.
-`sudo mkdir /var/globe_history` and `sudo chown readsb /var/globe_history` are useful for that.
-
-Add readsb options:
+Requires `readsb` with:
 ```
 --heatmap-dir /var/globe_history --heatmap 30
 ```
 
-## heatmap in conjunction with readsb wiedehopf fork --heatmap feature:
-
 ```
 /tar1090/?heatmap=200000
 ```
-Maximum number of dots to draw is the number after heatmap.
-Optional arguments that can be added to the URL:
-- duration in hours that shall be displayed: &heatDuration=48 (default: 24)
-- set the end of the duration 48 hours into the past: &heatEnd=48 (default:0)
-- radius of the dots: &heatRadius=2
-- opacity of the dots: &heatAlpha=2
-- only redraw the dots when pressing R on the keyboard: &heatManualRedraw
+- `&heatDuration=48` — hours shown (default 24)
+- `&heatEnd=48` — end of the window, hours into the past (default 0)
+- `&heatRadius=2` / `&heatAlpha=2` — dot size / opacity
+- `&heatManualRedraw` — only redraw on `R`
+- `&realHeat` — alternate style, with `&heatBlur=2` / `&heatWeight=4`
 
-alternative display style: &realHeat
-- blurryness: &heatBlur=2
-- weight of each dot for the heatmap: &heatWeight=4
+## Offline Map Tiles
 
-## Notable websites related to tar1090 / readsb:
+- [openfreemap_offline](https://github.com/wiedehopf/openfreemap_offline)
+- [Offline map tiles wiki](https://github.com/wiedehopf/adsb-wiki/wiki/offline-map-tiles-tar1090)
 
-One of this forks main uses is to be the frontend of a global map.
-For that purpose it's used in conjunction with readsb.
+## Cloudflare
 
-Websites using this software:
+Set **Caching → Configuration → Browser Cache TTL → "Respect Existing Headers"** — otherwise CF's default 4h TTL will conflict with tar1090's own cache headers.
 
+---
+
+## Related Projects & Credits
+
+Built on [wiedehopf/tar1090](https://github.com/wiedehopf/tar1090) and the [wiedehopf readsb fork](https://github.com/wiedehopf/readsb). Uses [zstddec-tar1090](https://github.com/wiedehopf/zstddec-tar1090) for zstd decompression.
+
+Notable sites running tar1090-based interfaces:
 - https://adsb.lol/
 - https://globe.adsbexchange.com/
 - https://globe.airplanes.live/
 - https://globe.adsb.fi/
 
-Notable Projects that use ADS-B data:
-
+Notable ADS-B data projects:
 - https://gpsjam.org/
 - https://adsb.exposed/
 - https://tech.marksblogg.com/global-flight-tracking-adsb.html
 
-## offline map
+## Reporting Issues
 
-<https://github.com/wiedehopf/openfreemap_offline>
-<https://github.com/wiedehopf/adsb-wiki/wiki/offline-map-tiles-tar1090>
+Open an issue on this repository. Please check the button tooltips and try a hard browser-cache clear first.
 
-## Uses this library for decompressing zstd
+## No Warranty
 
-<https://github.com/wiedehopf/zstddec-tar1090>
-
-## Cloudflare
-
-When hosting a website with tar1090 via CF, CF needs to respect the various cache headers otherwise there will be caching issues.
-Change Browser Cache TTL from the default of 4h to "Respect Existing Headers":
-Caching -> Configuration -> Browser Cache TTL -> Respect Existing Headers
-
-## AIS Catcher integration
-
-tar1090 incorporates AIS Catcher traffic directly into the same operational interface as ADS-B traffic. AIS vessels participate in the map, hover/details display, and traffic table rather than being only a separate visual overlay.
-
-Use the Air (`A`) and Marine (`M`) buttons independently. With the Military (`U`) filter enabled, the interface restricts traffic to military aircraft and selected operational maritime categories: airborne SAR, military, SAR, pollution-control, and law-enforcement vessels.
-
-Configure the AIS Catcher endpoint in `config.js` as described in "[Configuring part 2](#configuring-part-2-the-web-interface-optional)":
-```
-// aiscatcher_server = "http://192.168.1.113:8100"; // update with your server address
-// aiscatcher_refresh = 15; // refresh interval in seconds
-```
-You can remove the `//` to uncomment the line.
-
-Make sure that the server address is reachable from the device you are viewing the tar1090 page from (i.e. localhost / 127.0.0.1 will not work here unless you are viewing the tar1090 interface from the same machine you are running AIS-catcher - in all other cases it will need to be the local IP). If you run AIS-catcher and tar1090 on the same machine, you can use the host-relative magic token `HOSTNAME` to auto-populate the IP of the system - for example `http://HOSTNAME:8100`.
-
-**Note:** for this to work, you must have started AIS-catcher with the geojson flag set to on with the option `-N 8100 geojson on` and you should be able to see a geojson if you visit the `aiscatcher_server` address from above with `/geojson` appeanded to it - from the above example this would be `http://192.168.1.113:8100/geojson`
-
-
-## NO WARRANTY - Excerpt from the License:
-
-  11. BECAUSE THE PROGRAM IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY
-FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW.  EXCEPT WHEN
-OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES
-PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED
-OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS
-TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE
-PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING,
-REPAIR OR CORRECTION.
+This software is provided free of charge and **as-is**, without warranty of any kind, express or implied — including, without limitation, the implied warranties of merchantability and fitness for a particular purpose. You assume the entire risk as to its quality and performance; should it prove defective, you assume the cost of all necessary servicing, repair, or correction. See `LICENSE` for full terms.
