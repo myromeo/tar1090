@@ -1,7 +1,7 @@
 # Changelog
-All notable changes to this project will be documented in this file. 
+All notable changes to this project will be documented here. 
 ## 20-07-2026
-- Recall ship track on select from ais api (/api/path.json?<mmsi>
+- Recall ship track on select from ais api (/api/path.json?<mmsi>)
 
 ## 16-07-2026
 - Only flash #E button if emergency on screen
