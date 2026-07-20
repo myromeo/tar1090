@@ -1,4 +1,4 @@
-# Changelog
+## Changelog
 All notable changes to this project will be documented here. 
 ## 20-07-2026
 - Recall ship track on select from ais api (/api/path.json?<mmsi>)
