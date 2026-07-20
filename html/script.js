@@ -1072,6 +1072,39 @@ function earlyInitPage() {
             setGlobalScale(userScale);
         },
     });
+	
+	// AIS Track slider bar in settings popup
+	let aisTrackMaxHours = (loStore['aisTrackMaxHours'] != null) ? loStore['aisTrackMaxHours'] : 1;
+
+	function formatTrackHours(h) {
+	    if (h <= 0) return 'Off';
+	    if (h < 1) return Math.round(h * 60) + 'm';
+	    return h + 'h';
+	}
+
+	jQuery('#aisTrackHoursLabel').text(formatTrackHours(aisTrackMaxHours));
+
+	jQuery('#aisTrackHoursSlider').slider({
+	    value: aisTrackMaxHours,
+	    step: 0.5,
+	    min: 0,
+	    max: 24,
+	    slide: function(event, ui) {
+	        jQuery('#aisTrackHoursLabel').text(formatTrackHours(ui.value));
+	    },
+	    change: function(event, ui) {
+	        aisTrackMaxHours = ui.value;
+	        loStore['aisTrackMaxHours'] = aisTrackMaxHours;
+	        jQuery('#aisTrackHoursLabel').text(formatTrackHours(aisTrackMaxHours));
+
+	        // Re-apply immediately if a vessel is currently selected.
+	        if (SelectedPlane && String(SelectedPlane.icao).startsWith('MMSI')) {
+	            fetchVesselTrack(String(SelectedPlane.icao).replace(/^MMSI/i, ''));
+	        }
+	    },
+	});
+	// end AIS Track slider
+	
     setGlobalScale(userScale, "init");
 
     if (usp.has('hideButtons'))
@@ -2362,6 +2395,41 @@ const aisStatusDescriptions = {
 function getStatusDescription(squawk) {
     return aisStatusDescriptions[squawk] || "";
 }
+
+// start ship track 
+function fetchVesselTrack(mmsi) {
+    if (!aiscatcher_server || !mmsi || !g.aisTrackSource) return;
+
+    if (aisTrackMaxHours <= 0) {
+        g.aisTrackSource.clear();
+        return;
+    }
+
+    fetch(aiscatcher_server + '/api/path.json?' + mmsi)
+        .then(resp => resp.json())
+        .then(data => {
+            g.aisTrackSource.clear();
+
+            const points = data[mmsi];
+            if (!points || points.length === 0) return;
+
+            const cutoff = (Date.now() / 1000) - (aisTrackMaxHours * 3600);
+            const filtered = points.filter(p => p[3] >= cutoff); // p[3] = t_to (end of each segment)
+
+            if (filtered.length === 0) return;
+
+            const coords = filtered
+                .slice()
+                .reverse()
+                .map(p => ol.proj.fromLonLat([p[1], p[0]]));
+
+            g.aisTrackSource.addFeature(new ol.Feature({
+                geometry: new ol.geom.LineString(coords)
+            }));
+        })
+        .catch(err => console.error('fetchVesselTrack: failed for mmsi', mmsi, err));
+}
+// end ship track 
 
 const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "LAW"]);
 const emergencyShipStatuses = new Set([2, 14]);
@@ -3765,6 +3833,9 @@ function refreshSelected() {
     }
 
     if (!selected) {
+        if (g.aisTrackSource) {
+            g.aisTrackSource.clear();
+        }
         if (somethingSelected) {
             adjustInfoBlock();
             buttonActive('#F', FollowSelected);
@@ -3781,6 +3852,15 @@ function refreshSelected() {
     refreshPhoto(selected);
 
     jQuery('#selected_callsign').updateText(selected.name);
+
+    // AIS vessel track: fetch when a vessel is selected, clear if it's an aircraft.
+    if (g.aisTrackSource) {
+        if (String(selected.icao).startsWith('MMSI')) {
+            fetchVesselTrack(String(selected.icao).replace(/^MMSI/i, ''));
+        } else {
+            g.aisTrackSource.clear();
+        }
+    }
 
     if (showTrace) {
         if (selected.position_time) {
@@ -5021,11 +5101,15 @@ function selectPlaneByHex(hex, options) {
     // plane to be selected
     let newPlane = g.planes[hex];
 
-    const multiDeselect = multiSelect && newPlane && newPlane.selected && !onlySelected;
+	const multiDeselect = multiSelect && newPlane && newPlane.selected && !onlySelected;
 
-    if (!options.noFetch && (globeIndex || showTrace || haveTraces) && hex) {
-        newPlane = getTrace(newPlane, hex, options);
-    }
+	    if (g.aisTrackSource) {
+	        g.aisTrackSource.clear();
+	    }
+
+		if (!options.noFetch && (globeIndex || showTrace || haveTraces) && hex) {
+		        newPlane = getTrace(newPlane, hex, options);
+		    }
 
     // If we are clicking the same plane, we are deselecting it unless noDeselect is specified
     if (oldPlane == newPlane && (options.noDeselect || showTrace)) {
@@ -5430,12 +5514,13 @@ function toggleIsolation(state, noRefresh) {
 function toggleMarine() {
     window.ShowMarine = !window.ShowMarine;
     buttonActive('#Ma', window.ShowMarine);
-
     // Dynamic hybrid layer toggle for OpenLayers
     if (g && g.aiscatcherLayer && typeof g.aiscatcherLayer.setVisible === 'function') {
         g.aiscatcherLayer.setVisible(window.ShowMarine);
     }
-
+    if (g && g.aisTrackLayer && typeof g.aisTrackLayer.setVisible === 'function') {
+        g.aisTrackLayer.setVisible(window.ShowMarine);
+    }
     // Force tar1090 to look at planeObject.js and filter the table rows
     if (typeof refreshFilter === 'function') refreshFilter();
     if (typeof active === 'function') active();

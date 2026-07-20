@@ -907,6 +907,23 @@ function createBaseLayers() {
 		    g.aiscatcher_source = new ol.source.Vector({
 		        format: new ol.format.GeoJSON(),
 		    });
+			
+			// start track api call per vessel on click
+			g.aisTrackSource = new ol.source.Vector();
+			g.aisTrackLayer = new ol.layer.Vector({
+			    zIndex: 99,
+			    source: g.aisTrackSource,
+			    style: [
+			        new ol.style.Style({
+			            stroke: new ol.style.Stroke({ color: 'rgba(0, 0, 0, 0.35)', width: 0 })
+			        }),
+			        new ol.style.Style({
+			            stroke: new ol.style.Stroke({ color: 'rgba(148,58,61,255)', width: 3 })
+			        }),
+			    ],
+			});
+			world.push(g.aisTrackLayer);
+			// end track
 
 		    const aiscatcher_mapping = {
 		        0: { size: [20, 20], offset: [120, 20] },
