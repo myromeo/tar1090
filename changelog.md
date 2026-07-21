@@ -1,5 +1,8 @@
 ## Changelog
 All notable changes to this project will be documented here. 
+## 21-07-2026
+- Add ship track duration slider to settings (off-24h, default 1h)
+  
 ## 20-07-2026
 - Recall ship track on select from ais api (/api/path.json?<mmsi>)
 
