@@ -1,5 +1,9 @@
 ## Changelog
 All notable changes to this project will be documented here. 
+
+## 29-07-2026
+- Backend change to AIS-Catcher v0.70
+
 ## 21-07-2026
 - Add ship track duration slider to settings (off-24h, default 1h)
   
@@ -12,9 +16,6 @@ All notable changes to this project will be documented here.
 ## 13-07-2026
 - Emergency filtering for AIS vessels
 - Flash #E button on emergency present anywhere
-
-## 11-07-2026
-- Update logo for light/dark theme auto invert
 
 ## 10-07-2026
 - Add Marine and Aircraft toggle buttons
