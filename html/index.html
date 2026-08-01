@@ -2,14 +2,13 @@
 <html>
   <head>
     <meta name="description" content="tar1090 - ADS-B plane tracking interface">
-
     <meta charset="utf-8"/>
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-
     <meta name="viewport" content="user-scalable=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, minimal-ui" />
 
-    <!-- HEAD_ANCHOR -->
+    <!-- Preconnect to external CDN -->
+    <link rel="preconnect" href="https://cdnjs.buymeacoffee.com">
 
     <!-- CSS_ANCHOR -->
     <link rel="stylesheet" href="libs/jquery-ui-1.13.2.min.css" type="text/css">
@@ -18,8 +17,7 @@
     <link rel="stylesheet" href="style.css" type="text/css" />
 
     <link rel="icon" type="image/png" href="images/tar1090-favicon.png">
-
-    <title>tar1090</title>
+    <title>mlat.uk map</title>
   </head>
 
   <body>
@@ -776,6 +774,10 @@
             <div class="settingsText">Icon size multiplier:</div>
           </div>
           <div style="display: block; width: 100%;" id="iconScaleSlider"></div>
+		  <div class="settingsOptionContainer">
+		    <div class="settingsText">Vessel Track History: <span id="aisTrackHoursLabel">1h</span></div>
+		  </div>
+          <div style="display: block; width: 100%;" id="aisTrackHoursSlider"></div>
           <div class="rSpacer">
             <hr />
           </div>
@@ -925,13 +927,15 @@
               </td></tr>
               <tr>
                 <td>
-                  <table style="width: 100%">
+				  <table style="width: 100%">
                     <tr class="infoblock_heading">
-                      <td style="width: 50%"><span class="infoBlockTitleText">Total Aircraft:</span> <span id="dump1090_total_ac">n/a</span></td>
+                      <td style="width: 50%"><span class="infoBlockTitleText" id="ac_count_label">On Screen Aircraft:</span> <span id="dump1090_total_ac">n/a</span></td>
                       <td id="dump1090_message_rate_td"><span class="infoBlockTitleText">Messages:</span> <span id="dump1090_message_rate">n/a</span>/sec</td>
                     </tr>
                     <tr class="infoblock_body">
-                      <td style="width: 50%"><span id="with_positions" class="infoBlockTitleText">With Position:</span> <span id="dump1090_total_ac_positions">n/a</span></td>
+                      <td style="width: 50%"><span class="infoBlockTitleText" id="vessel_count_label">On Screen Vessels:</span> <span id="dump1090_total_vessels">n/a</span></td>
+                      <td></td>
+                    </tr>
                       <td id="dump1090_total_history_td"><span class="infoBlockTitleText">History:</span> <span id="dump1090_total_history">n/a</span> positions</td>
                     </tr>
                   </table>
@@ -950,9 +954,35 @@
                   </table>
                 </td>
               </tr>
+			<tr>
+			  <td>
+			    <!-- Nested table to match the stats table structure -->
+			    <table style="width: 100%">
+			      <tr class="infoblock_row">
+			        <td style="padding: 12px 0;">
+			          <div class="infoBlockTitleText" style="font-size: 11px; margin-bottom: 5px;">
+			            Enjoying the site? Help keep mlat.uk online:
+			          </div>
+			          <div style="transform: scale(0.6); transform-origin: left center; display: inline-block;">
+						<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" 
+						        data-name="bmc-button" data-slug="mlatuk" data-color="#3d7382" 
+						        data-emoji="" data-font="Cookie" data-text="Buy me a coffee" 
+						        data-outline-color="#ffffff" data-font-color="#ffffff" 
+						        data-coffee-color="#FFDD00"></script>
+			          </div>
+			        </td>
+			      </tr>
+			    </table>
+			  </td>
+			</tr>
             </table>
 
-            <!-- ABOVE_TABS_ANCHOR -->
+			<!-- ABOVE_TABS_ANCHOR -->
+
+
+
+			<!-- Buttons and table section -->
+
 
             <div id="tabs" style="min-height: 10px; overflow: auto">
               <ul>
@@ -1085,33 +1115,29 @@
     <div id="js_error" class="hidden"></div>
     <div id="container_splitter"></div>
 
-    <script>let databaseFolder = "db2";</script>
-    <!-- JS_ANCHOR1 -->
-    <script src="libs/jquery-3.6.1.min.js"></script>
-    <script src="libs/elm-pep-01.js"></script>
-    <script src="libs/jquery-ui-1.13.2.min.js"></script>
-    <script src="libs/jquery.ui.touch-punch-1.0.8.js"></script>
-    <script src="libs/zstddec-tar1090-0.0.5.js"></script>
+	<script>let databaseFolder = "db2";</script>
+    
+    <!-- Core & Third Party Libraries (Loaded in strict order) -->
+    <script src="libs/jquery-3.6.1.min.js" defer></script>
+    <script src="libs/elm-pep-01.js" defer></script>
+    <script src="libs/jquery-ui-1.13.2.min.js" defer></script>
+    <script src="libs/jquery.ui.touch-punch-1.0.8.js" defer></script>
+    <script src="libs/zstddec-tar1090-0.0.5.js" defer></script>
+    <script src="libs/ol-custom-10.6.1.js" defer></script>
 
-    <!-- ol-custom bundling created using https://github.com/wiedehopf/ol-rollup-->
-    <script src="libs/ol-custom-10.6.1.js"></script>
-
-    <!-- JS_ANCHOR2 -->
-    <script src="early.js"></script>
-
-    <script src="defaults.js"></script>
-    <script src="config.js"></script>
-    <script src="dbloader.js"></script>
-    <script src="registrations.js"></script>
-    <script src="formatter.js"></script>
-    <script src="flags.js"></script>
-    <script src="layers.js"></script>
-    <script src="geomag2020.js"></script>
-    <script src="markers.js"></script>
-
-    <!-- JS_ANCHOR3 -->
-    <script src="planeObject.js"></script>
-    <script src="script.js"></script>
+    <!-- Application Logic (Sequential) -->
+    <script src="early.js" defer></script>
+    <script src="defaults.js" defer></script>
+    <script src="config.js" defer></script>
+    <script src="dbloader.js" defer></script>
+    <script src="registrations.js" defer></script>
+    <script src="formatter.js" defer></script>
+    <script src="flags.js" defer></script>
+    <script src="layers.js" defer></script>
+    <script src="geomag2020.js" defer></script>
+    <script src="markers.js" defer></script>
+    <script src="planeObject.js" defer></script>
+    <script src="script.js" defer></script>
 
     <link rel="preload" as="image" crossOrigin="anonymous" href="images/sprites.png">
 

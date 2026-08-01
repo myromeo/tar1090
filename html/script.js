@@ -44,6 +44,7 @@ let PlaneFilter   = {};
 let SelectedPlane = null;
 let sp = null;
 let SelPlanes = [];
+let aisTrackMaxHours = 1;
 let SelectedAllPlanes = false;
 window.ShowMarine = true;
 window.ShowAir = true;
@@ -160,6 +161,9 @@ let globeTrackedAircraft = 0;
 let TrackedAircraftPositions = 0;
 let TrackedHistorySize = 0;
 let aircraftShown = 0;
+let vesselsShown = 0;
+let aircraftTotal = 0;
+let vesselsTotal = 0;
 
 let SitePosition = null;
 
@@ -1074,35 +1078,35 @@ function earlyInitPage() {
     });
 	
 	// AIS Track slider bar in settings popup
-	let aisTrackMaxHours = (loStore['aisTrackMaxHours'] != null) ? loStore['aisTrackMaxHours'] : 1;
+	aisTrackMaxHours = (loStore['aisTrackMaxHours'] != null) ? loStore['aisTrackMaxHours'] : 1; 
 
-	function formatTrackHours(h) {
-	    if (h <= 0) return 'Off';
-	    if (h < 1) return Math.round(h * 60) + 'm';
-	    return h + 'h';
-	}
+	    function formatTrackHours(h) {
+	        if (h <= 0) return 'Off';
+	        if (h < 1) return Math.round(h * 60) + 'm';
+	        return h + 'h';
+	    }
 
-	jQuery('#aisTrackHoursLabel').text(formatTrackHours(aisTrackMaxHours));
+	    jQuery('#aisTrackHoursLabel').text(formatTrackHours(aisTrackMaxHours));
 
-	jQuery('#aisTrackHoursSlider').slider({
-	    value: aisTrackMaxHours,
-	    step: 0.5,
-	    min: 0,
-	    max: 24,
-	    slide: function(event, ui) {
-	        jQuery('#aisTrackHoursLabel').text(formatTrackHours(ui.value));
-	    },
-	    change: function(event, ui) {
-	        aisTrackMaxHours = ui.value;
-	        loStore['aisTrackMaxHours'] = aisTrackMaxHours;
-	        jQuery('#aisTrackHoursLabel').text(formatTrackHours(aisTrackMaxHours));
+	    jQuery('#aisTrackHoursSlider').slider({
+	        value: aisTrackMaxHours,
+	        step: 0.5,
+	        min: 0,
+	        max: 12,
+	        slide: function(event, ui) {
+	            jQuery('#aisTrackHoursLabel').text(formatTrackHours(ui.value));
+	        },
+	        change: function(event, ui) {
+	            aisTrackMaxHours = ui.value;
+	            loStore['aisTrackMaxHours'] = aisTrackMaxHours;
+	            jQuery('#aisTrackHoursLabel').text(formatTrackHours(aisTrackMaxHours));
 
-	        // Re-apply immediately if a vessel is currently selected.
-	        if (SelectedPlane && String(SelectedPlane.icao).startsWith('MMSI')) {
-	            fetchVesselTrack(String(SelectedPlane.icao).replace(/^MMSI/i, ''));
-	        }
-	    },
-	});
+	            // Re-apply immediately if a vessel is currently selected.
+	            if (SelectedPlane && String(SelectedPlane.icao).startsWith('MMSI')) {
+	                fetchVesselTrack(String(SelectedPlane.icao).replace(/^MMSI/i, ''));
+	            }
+	        },
+	    });
 	// end AIS Track slider
 	
     setGlobalScale(userScale, "init");
@@ -4846,10 +4850,7 @@ function refreshFeatures() {
         global.refreshPageTitle();
         jQuery('#dump1090_total_history').updateText(TrackedHistorySize);
         jQuery('#dump1090_message_rate').updateText(MessageRate === null ? 'n/a' : MessageRate.toFixed(1));
-        jQuery('#dump1090_total_ac').updateText(globeIndex ? globeTrackedAircraft : TrackedAircraft);
         jQuery('#dump1090_total_ac_positions').updateText(TrackedAircraftPositions);
-
-
 
         ctime && console.time("DOM1");
 
@@ -5735,7 +5736,9 @@ function toggleTableInView(arg) {
         loStore['tableInView'] = tableInView;
     }
 
-    jQuery('#with_positions').text(tableInView ? "On Screen:" : "With Position:");
+    if (typeof OLMap !== 'undefined' && OLMap) {
+        updateVisible();
+    }
 
     buttonActive('#V', tableInView);
 }
@@ -6293,7 +6296,7 @@ function checkScale() {
         iconSize = markerSmall;
     } else {
         iconSize = markerSmall;
-        if (aircraftShown > 700) {
+        if ((aircraftShown + vesselsShown) > 700) {
             iconSize *= 0.9;
         }
     }
@@ -6498,22 +6501,42 @@ function updateVisible() {
         lastRenderExtent = getRenderExtent();
     }
     aircraftShown = 0;
+    vesselsShown = 0;
+    aircraftTotal = 0;
+    vesselsTotal = 0;
+
     for (let i in g.planesOrdered) {
         const plane = g.planesOrdered[i];
-        
-        // 1. Identify if the asset is a marine vessel
+
         const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
 
-        // 3. Run native tar1090 tracking systems
         plane.updateVisible();
-        
-        // 4. Run your exact 3-state visibility matrix check
+
         if (!customCheckPlaneFilter(plane, isShip)) {
             plane.visible = false;
         }
 
-        aircraftShown += (plane.visible && plane.inView);
+        if (plane.visible) {
+            if (isShip) {
+                vesselsTotal++;
+            } else {
+                aircraftTotal++;
+            }
+        }
+
+        const onScreen = plane.visible && plane.inView;
+        if (isShip) {
+            vesselsShown += onScreen;
+        } else {
+            aircraftShown += onScreen;
+        }
     }
+
+    jQuery('#ac_count_label').text(tableInView ? "On Screen Aircraft:" : "Total Aircraft:");
+    jQuery('#vessel_count_label').text(tableInView ? "On Screen Vessels:" : "Total Vessels:");
+    jQuery('#dump1090_total_ac').updateText(tableInView ? aircraftShown : aircraftTotal);
+    jQuery('#dump1090_total_vessels').updateText(tableInView ? vesselsShown : vesselsTotal);
+
 	updateEmergencyButtonAlert();
     checkScale();
 }
@@ -8369,6 +8392,13 @@ function currentExtent(factor) {
     return myExtent(OLMap.getView().calculateExtent(size));
 }
 
+function replayResetState() {
+    clearTimeout(refreshId);
+    reaper(true);
+    refreshFilter();
+    replayPlanes = {};
+}
+
 function replayDefaults(ts) {
     jQuery("#replayPlay").html("Pause");
     let playing = true;
@@ -8432,7 +8462,7 @@ function loadReplay(ts) {
         ts.setUTCMinutes(Math.floor(ts.getUTCMinutes() / 30) * 30 + 1);
         ts.setUTCSeconds(0);
         console.log('not available, using this time: ' + ts);
-        replayClear();
+        replayResetState();
     }
 
     replay.ts = ts;
@@ -8601,7 +8631,7 @@ function replayJump() {
     //console.trace();
     console.log('jump: ' + date.toUTCString());
 
-    replayClear();
+    replayResetState();
     loadReplay(date);
 }
 function replaySetTimeHint(arg) {
