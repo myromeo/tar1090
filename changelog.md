@@ -1,6 +1,11 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
+## 17-08-2026
+- Added select Aircraft Squawk code descriptions as 'status' (Thanks Soti for the info)
+- Added squawk 7400, UAV Link Lost, to emergency filter
+- Note, I'm aware that ship image lookups are failing. The MarineTraffic service I relied upon has been deprecated. I'm waiting on further information for an alternative method. 
+
 ## 29-07-2026
 - Backend change to AIS-Catcher v0.70
 
