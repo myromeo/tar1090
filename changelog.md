@@ -2,7 +2,7 @@
 All notable changes to this project will be documented here. 
 
 ## 07-09-2016
-- Temporarily changed vessel image lookup to use Wikimedia - this WILL result in incorrect images loading! I'm still working on a solution with MarineTraffic and will implement as soon as something better becomes available.
+- Temporarily changed vessel image lookup to use Wikimedia - this WILL result in incorrect images loading, sometimes with quite amusing results! I'm still working on a solution with MarineTraffic and will implement as soon as something better becomes available. 
 
 ## 17-08-2026
 - Added select Aircraft Squawk code descriptions as 'status' (Thanks Soti for the info)
