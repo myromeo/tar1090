@@ -1,6 +1,11 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
+## 16-09-2016
+### Major update
+- Added new satellite telemetry option with dataset from celestrak visual, stations, and military groups. this feature is experimental, and I expect some glitches whilst I commission.
+- various minor bug fixes
+
 ## 07-09-2016
 - Temporarily changed vessel image lookup to use Wikimedia - this WILL result in missing or incorrect images loading, sometimes with quite amusing results! I'm still working on a solution with MarineTraffic and will implement as soon as something better becomes available. 
 
