@@ -1,7 +1,7 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
-## 16-09-2026
+## 17-09-2026
 - Moved UI object rendering to WebGL
 
 ## 16-09-2026
