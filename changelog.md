@@ -1,12 +1,15 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
-## 16-09-2016
+## 16-09-2026
+- Moved UI object rendering to WebGL
+
+## 16-09-2026
 ### Major update
 - Added new satellite telemetry option with dataset from celestrak visual, stations, and military groups. this feature is experimental, and I expect some glitches whilst I commission.
 - various minor bug fixes
 
-## 07-09-2016
+## 07-09-2026
 - Temporarily changed vessel image lookup to use Wikimedia - this WILL result in missing or incorrect images loading, sometimes with quite amusing results! I'm still working on a solution with MarineTraffic and will implement as soon as something better becomes available. 
 
 ## 17-08-2026
