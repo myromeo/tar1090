@@ -3,10 +3,15 @@ All notable changes to this project will be documented here.
 
 ## 17-09-2026
 - Moved UI object rendering to WebGL
+- Added military satellites to 'U' filter
+- Added 'last 30 days' satellite group dataset from celestrak, with recent satellites showing as green.
+- Updated site logo to reflect multi-domain interface, plus it looks cool.
+- Updated main site wording to include satellite references
+- various bug fixes and UI tweaks
 
 ## 16-09-2026
 ### Major update
-- Added new satellite telemetry option with dataset from celestrak visual, stations, and military groups. this feature is experimental, and I expect some glitches whilst I commission.
+- Added new satellite  option with dataset from celestrak visual, stations, and military groups. this feature is experimental, and I expect some glitches whilst I commission.
 - various minor bug fixes
 
 ## 07-09-2026
