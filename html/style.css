@@ -37,6 +37,8 @@ select {
     font-size: var(--FS2);
     white-space: nowrap;
     cursor: default;
+    will-change: transform;
+    transform: translateZ(0);
 }
 
 #layout_container {
@@ -53,6 +55,7 @@ select {
     overflow: auto;
     z-index: 1;
     background-color: var(--BGCOLOR1);
+    will-change: transform;
 }
 .aggregator-selected-bg:before {
     content: ' ';
@@ -85,8 +88,8 @@ select {
     flex-direction: column;
     left: calc( 0px * var(--SCALE)) !important;
     height: 100%;
+    will-change: transform;
 }
-
 
 #map_container {
     flex: 1 1 auto;
@@ -136,7 +139,6 @@ select {
     transform: scaleX(-1);
     background-image: url("images/hide_sidebar.png");
 }
-
 
 #credits {
     display: flex;
@@ -191,17 +193,16 @@ select {
 #splitter-infoblock {
     cursor: ns-resize;
     display: inline-block;
-    position: absolute	;
+    position: absolute;
     top: calc( 0px * var(--SCALE));
     right: 0;
     margin-left: auto;
-    width: calc( 24px * var(--SCALE));
+    width: 100%;
     height: calc( 4px * var(--SCALE));
     background-size: calc( 24px * var(--SCALE)) calc( 25px * var(--SCALE));
     background-repeat: no-repeat;
     background-position: calc( 0px * var(--SCALE));
     border: none;
-    width: 100%;
     border-bottom: #234c75;
     background-color: #65819e;
     border-bottom-width: calc( 1px * var(--SCALE));
@@ -252,8 +253,14 @@ select {
 }
 
 .error_box {
-    position: absolute; bottom: calc( 90px * var(--SCALE)); left: calc( 25px * var(--SCALE)); border: calc( 2px * var(--SCALE)) solid red;
-    background-color: #FFFFA3; opacity: 0.75; filter:alpha(opacity=75); padding: calc( 5px * var(--SCALE));
+    position: absolute; 
+    bottom: calc( 90px * var(--SCALE)); 
+    left: calc( 25px * var(--SCALE)); 
+    border: calc( 2px * var(--SCALE)) solid red;
+    background-color: #FFFFA3; 
+    opacity: 0.75; 
+    filter:alpha(opacity=75); 
+    padding: calc( 5px * var(--SCALE));
     color: black;
     font-weight: bold;
     font-size: var(--FS3);
@@ -262,7 +269,9 @@ select {
 }
 
 .inaccurate_warning {
-    position: absolute; top: calc( 25px * var(--SCALE)); left: calc( 280px * var(--SCALE));
+    position: absolute; 
+    top: calc( 25px * var(--SCALE)); 
+    left: calc( 280px * var(--SCALE));
     width: 50%;
     background-color: var(--BGCOLOR1);
     padding: calc( 5px * var(--SCALE));
@@ -273,7 +282,10 @@ select {
     bottom: 5px;
     left: 5px;
     border: calc( 2px * var(--SCALE)) solid red;
-    background-color: #FFFFA3; opacity: 0.75; filter:alpha(opacity=75); padding: calc( 5px * var(--SCALE));
+    background-color: #FFFFA3; 
+    opacity: 0.75; 
+    filter:alpha(opacity=75); 
+    padding: calc( 5px * var(--SCALE));
     color: black;
     font-size: var(--FS2);
     line-height: 150%;
@@ -282,9 +294,8 @@ select {
     white-space: pre-line;
 }
 
-#loader {position: absolute; width: 25%; height: 30px; z-index: 9999; top: 50%; left: 37.5%}
-#loader_progress { width:  100%; height: 100%; position: absolute; }
-
+#loader { position: absolute; width: 25%; height: 30px; z-index: 9999; top: 50%; left: 37.5%; }
+#loader_progress { width: 100%; height: 100%; position: absolute; }
 
 .aircraft_table_header {
     background-color: var(--ACCENT);
@@ -293,9 +304,7 @@ select {
     position: sticky;
     top: 0;
     z-index: 10;
-    box-shadow:
-        0 -2px 2px -1px rgba(0, 0, 0, 0.5),
-        0 2px 2px -1px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 -2px 2px -1px rgba(0, 0, 0, 0.5), 0 2px 2px -1px rgba(0, 0, 0, 0.7);
 }
 .aircraft_table_header td {
     font-size: smaller;
@@ -319,9 +328,9 @@ select {
 
 .hidden { display: none; }
 
-.infoblock_heading a  { text-decoration: none; color: blue; font-size: var(--FS2); }
+.infoblock_heading a { text-decoration: none; color: blue; font-size: var(--FS2); }
 
-.dim    { opacity: 0.3; filter:alpha(opacity=30); /* For IE8 and earlier */ }
+.dim { opacity: 0.3; filter:alpha(opacity=30); }
 
 .pointer { cursor: pointer; }
 
@@ -339,14 +348,14 @@ select {
 
 .altitudeFilterInput {
     width: calc( 50px * var(--SCALE));
-    height:  calc(15px * var(--SCALE));
+    height: calc( 15px * var(--SCALE));
     color:var(--TXTCOLOR2);
     background-color: var(--BGCOLOR2);
     border-color: var(--BGCOLOR1);
 }
 .searchInput {
-    width:  calc(100px * var(--SCALE));
-    height:  calc(15px * var(--SCALE));
+    width: calc(100px * var(--SCALE));
+    height: calc(15px * var(--SCALE));
     color:var(--TXTCOLOR2);
     background-color: var(--BGCOLOR2);
     border-color: var(--BGCOLOR1);
@@ -378,33 +387,23 @@ select.error, textarea.error, input.error {
     width: calc( 30px * var(--SCALE));
     height: calc( 30px * var(--SCALE));
 }
-.layer-switcher !.shown {
-    top: calc( 3px * var(--SCALE)) !important;
-    right: calc( 44px * var(--SCALE)) !important;
-    width: calc( 32px * var(--SCALE));
-    height: calc( 32px * var(--SCALE));
-    z-index: 999;
-}
 .layer-switcher.shown .panel {
     overflow-y: auto;
     height: 95vh;
 }
 
-/* new css */
-.dateTime
-{
+.dateTime {
     font-weight: bold;
     font-size: calc( 12px * var(--SCALE));
     line-height: calc( 26px * var(--SCALE));
     color: #FFFFFF;
-    color: rgb(255, 255, 255);
     text-align: right;
     display: inline-block;
     padding-right: calc( 20px * var(--SCALE));
     padding-left: calc( 20px * var(--SCALE));
 }
 
-@media screen and (max-width: 1 calc(000px * var(--SCALE))) {
+@media screen and (max-width: 1000px) {
     .dateTime {
         display: none;
     }
@@ -422,8 +421,7 @@ select.error, textarea.error, input.error {
     padding: calc( 3px * var(--SCALE)) calc( 20px * var(--SCALE));
 }
 
-.legend
-{
+.legend {
     font-size: 110%;
     color:var(--TXTCOLOR2);
     display: flex;
@@ -431,12 +429,9 @@ select.error, textarea.error, input.error {
     padding-top: calc( 10px * var(--SCALE));
 }
 
-
-.settingsText
-{
+.settingsText {
     font-size: calc( 14px * var(--SCALE));
     line-height: calc( 20px * var(--SCALE));
-
 }
 
 .link, .link a {
@@ -447,7 +442,7 @@ select.error, textarea.error, input.error {
 #header_side {
     position: absolute;
     right: calc( 0px * var(--SCALE));
-    top:  calc( 0px * var(--SCALE));
+    top: calc( 0px * var(--SCALE));
     width: calc( 38px * var(--SCALE));
     z-index: 9;
 }
@@ -470,7 +465,7 @@ select.error, textarea.error, input.error {
     margin: calc( 2px * var(--SCALE));
     display: inline-block;
     border-radius: calc( 2px * var(--SCALE));
-    position: relative; /* CRITICAL: Keeps the inner icons contained inside the button */
+    position: relative;
 }
 
 .fullscreenButton {
@@ -486,30 +481,38 @@ select.error, textarea.error, input.error {
 .replayButton {
     background-image: url('images/replay-white.svg');
     background-size: 120%;
-} /* CRITICAL: This closing bracket was missing! */
+}
 
-/* --- Pseudo-element setup for the toggles --- */
+/* Pseudo-element setup for toggles */
+.satelliteButton::after,
 .marineButton::after,
 .aircraftButton::after {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0; /* Fills the button */
+    top: 0; left: 0; right: 0; bottom: 0;
     background-position: center;
     background-repeat: no-repeat;
 }
 
-.marineButton { background-image: none; } /* Clear old image */
+.marineButton { background-image: none; }
 .marineButton::after {
     background-image: url('images/ais-white.svg');
     background-size: 80%;
 }
 
-.aircraftButton { background-image: none; } /* Clear old image */
+.aircraftButton { background-image: none; }
 .aircraftButton::after {
     background-image: url('images/adsb-white.svg');
     background-size: 80%;
 }
 
+.satelliteButton { background-image: none; }
+.satelliteButton::after {
+    background-image: url('images/satellite-white.svg');
+    background-size: 80%;
+}
+
+.satelliteButton.activeButton::after,
 .marineButton.activeButton::after,
 .aircraftButton.activeButton::after {
     filter: invert(1);
@@ -527,7 +530,6 @@ select.error, textarea.error, input.error {
     background-clip: padding-box;
 }
 
-
 .buttonContainer {
     display: block;
     margin: calc( 1px * var(--SCALE));
@@ -537,11 +539,10 @@ select.error, textarea.error, input.error {
     margin: calc( 9px * var(--SCALE));
 }
 
-.buttonText
-{
+.buttonText {
     font-weight: bold;
     font-size: calc( 15px * var(--SCALE));
-    line-height:  calc( 27px * var(--SCALE));
+    line-height: calc( 27px * var(--SCALE));
     text-align: center;
     margin: calc( 5px * var(--SCALE));
 }
@@ -558,7 +559,7 @@ select.error, textarea.error, input.error {
     position: absolute;
     left: calc( 40px * var(--SCALE));
     top: calc( 60px * var(--SCALE));
-    min-width:  calc(132px * var(--SCALE));
+    min-width: calc(132px * var(--SCALE));
     padding-right: calc( 5px * var(--SCALE));
     box-shadow: calc( 4px * var(--SCALE)) calc( 4px * var(--SCALE)) calc( 10px * var(--SCALE)) #444444;
     cursor: pointer;
@@ -629,19 +630,10 @@ table.infoSectionTable tr td {
 }
 
 .infoBlockSection {
-    padding-top: calc( 7px * var(--SCALE));
-    padding-bottom: calc( 7px * var(--SCALE));
-    padding-left: calc( 7px * var(--SCALE));
-    padding-right: calc( 7px * var(--SCALE));
+    padding: calc( 7px * var(--SCALE));
 }
 
-.largeText a {
-    font-weight: bold;
-    color: var(--TXTCOLOR1);
-    font-size: var(--FS3);
-}
-
-.largeText {
+.largeText a, .largeText {
     font-weight: bold;
     color: var(--TXTCOLOR1);
     font-size: var(--FS3);
@@ -651,8 +643,6 @@ table.infoSectionTable tr td {
     font-weight: bold;
     color:var(--TXTCOLOR3);
 }
-
-
 
 .legendTitle {
     line-height: calc( 19px * var(--SCALE));
@@ -676,7 +666,7 @@ table.infoSectionTable tr td {
 
 .settingsColumn {
     display: table-cell;
-    width:  calc(199px * var(--SCALE));
+    width: calc(199px * var(--SCALE));
 }
 .settingsOptionContainer {
     display: table;
@@ -711,6 +701,112 @@ table.infoSectionTable tr td {
     cursor: pointer;
 }
 
+#about_infoblock {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    box-sizing: border-box;
+    overflow: auto;
+    max-height: 90%;
+    box-shadow: calc( 4px * var(--SCALE)) calc( 4px * var(--SCALE)) calc( 10px * var(--SCALE)) #444444;
+    padding: calc( 20px * var(--SCALE));
+    z-index: 9999;
+    display: none;
+    background-color: var(--BGCOLOR1);
+}
+
+.aboutTitle {
+    font-size: var(--FS3);
+    font-weight: bold;
+    color: var(--TXTCOLOR1);
+    text-align: center;
+    margin-bottom: calc( 10px * var(--SCALE));
+    padding-right: calc( 24px * var(--SCALE));
+}
+
+#about_infoblock hr {
+    border: none;
+    border-top: calc( 1px * var(--SCALE)) solid var(--BGCOLOR2);
+    margin: calc( 10px * var(--SCALE)) 0;
+}
+
+.aboutSection {
+    padding: calc( 6px * var(--SCALE)) 0;
+}
+
+.aboutText {
+    color: var(--TXTCOLOR2);
+    font-size: var(--FS2);
+    line-height: 1.4;
+    margin: 0;
+}
+
+.aboutSectionTitle {
+    font-weight: bold;
+    color: var(--TXTCOLOR3);
+    font-size: var(--FS3);
+    margin-bottom: calc( 6px * var(--SCALE));
+}
+
+.aboutIconRow {
+    display: flex;
+    align-items: center;
+    gap: calc( 12px * var(--SCALE));
+}
+
+.aboutIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc( 34px * var(--SCALE));
+    height: calc( 34px * var(--SCALE));
+    flex-shrink: 0;
+}
+
+.aboutIcon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.aboutIconTable {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.aboutIconTable td {
+    padding: calc( 6px * var(--SCALE)) 0;
+    vertical-align: middle;
+}
+
+.aboutIconCell {
+    width: calc( 44px * var(--SCALE));
+    text-align: center;
+}
+
+.aboutIconCell .aboutIcon {
+    margin: 0 auto;
+}
+
+.aboutDescriptorCell {
+    color: var(--TXTCOLOR2);
+    font-size: var(--FS2);
+    padding-left: calc( 10px * var(--SCALE));
+}
+
+.aboutFootnote {
+    color: var(--TXTCOLOR3);
+    font-size: var(--FS1);
+    font-style: italic;
+    margin-top: calc( 4px * var(--SCALE));
+}
+
+.aboutLinkRow {
+    text-align: center;
+    margin-top: calc( 14px * var(--SCALE));
+}
+
 .infoblockCloseBox {
     position: absolute;
     right: calc( 20px * var(--SCALE));
@@ -731,7 +827,7 @@ table.infoSectionTable tr td {
 #altitude_chart {
     float: right;
     width: calc(100% - calc( 5px * var(--SCALE)));
-    max-width:  calc(800px * var(--SCALE));
+    max-width: calc(800px * var(--SCALE));
     right: calc( 85px * var(--SCALE));
     bottom: calc( 35px * var(--SCALE));
     background-color: transparent !important;
@@ -745,7 +841,6 @@ table.infoSectionTable tr td {
     padding: 0;
     padding-bottom: calc(100% * 56 / 1815);
 }
-
 
 #selected_flightaware_link a {
     background-color: #67b6c3;
@@ -792,12 +887,12 @@ table.infoSectionTable tr td {
     color: var(--TXTCOLOR1);
 }
 .greyButton:after {
-    content: '\02795\FE0E'; /* Unicode character for "plus" sign (+) */
+    content: '\02795\FE0E';
     float: right;
     margin-left: calc( 5px * var(--SCALE));
 }
 .greyButton.active:after {
-    content: "\2796\FE0E"; /* Unicode character for "minus" sign (-) */
+    content: "\2796\FE0E";
 }
 
 .ui-tabs-nav li a:focus {
@@ -852,7 +947,7 @@ table.infoSectionTable tr td {
 }
 
 #sortableColumns li {
-    margin: 3px 3px 3px 3px;
+    margin: 3px;
     padding: calc( 0px * var(--SCALE));
     float: left;
     width: calc( 120px * var(--SCALE));
@@ -862,7 +957,6 @@ table.infoSectionTable tr td {
 #copyrightInfo {
   position: Relative;
   font-size: var(--FS1);
-
 }
 #selected_photo{
   text-align: center;
@@ -878,14 +972,11 @@ table.infoSectionTable tr td {
 .ui-state-default a, .ui-state-default a:link, .ui-state-default a:visited, a.ui-button, a:link.ui-button, a:visited.ui-button, .ui-button {
   color:var(--TXTCOLOR2);
 }
- .ui-widget-header .ui-state-default, .ui-button, html .ui-button.ui-state-disabled:hover, html .ui-button.ui-state-disabled:active {
+.ui-widget-header .ui-state-default, .ui-button, html .ui-button.ui-state-disabled:hover, html .ui-button.ui-state-disabled:active {
   color:var(--TXTCOLOR2);
 }
 .ui-widget-header, .ui-widget.ui-widget-content {
     border: none;
-}
-.ui-state-default, .ui-widget-content .ui-state-default, .ui-widget-header .ui-state-default, .ui-button, html .ui-button.ui-state-disabled:hover, html .ui-button.ui-state-disabled:active {
-    color:var(--TXTCOLOR2);
 }
 .ui-widget-content {
   color:var(--TXTCOLOR2);
@@ -898,11 +989,10 @@ table.infoSectionTable tr td {
     background-color: rgb(0, 115, 222);
 }
 
-
-input{
+input {
   color:var(--TXTCOLOR1);
 }
-#histDatePicker{
+#histDatePicker {
   background: var(--BGCOLOR1);
 }
 
@@ -912,10 +1002,11 @@ input{
   width: calc(100% - 80px);
   padding-right: 80px;
   position: absolute;
-  height: 10px;
+  height: auto;
+  min-height: 80px;
   bottom: 0%;
   grid-template-columns: 1fr 1.5fr 5fr 2fr;
-  grid-template-rows: 20px 40px 20px 20px;
+  grid-template-rows: auto;
   justify-items: center;
   align-items: center;
   grid-template-areas:
@@ -923,45 +1014,21 @@ input{
     "play datepicker hours speedSelect"
     ". dateHintLocal minutes loading "
     ". . . .";
+  z-index: 1000;
 }
 
-#replayLoading {
-  grid-area: loading;
-}
+#replayLoading { grid-area: loading; }
+#replayTimeZone { grid-area: timezone; }
+#replayPlay { grid-area: play; }
+#replayDatepicker { grid-area: datepicker; }
+#hourSelect { width: 90%; grid-area: hours; }
+#minuteSelect { width: 90%; grid-area: minutes; }
+#replaySpeedSelect { grid-area: speedSelect; width: 90%; }
+#replayTimeHint { grid-area: timeHint; }
+#replayDateHintLocal { grid-area: dateHintLocal; }
+#replayDateHint { grid-area: dateHint; }
+#replaySpeedHint { grid-area: speedHint; }
 
-#replayTimeZone{
-  grid-area: timezone;
-}
-#replayPlay{
-  grid-area: play;
-}
-#replayDatepicker{
-  grid-area: datepicker;
-}
-#hourSelect{
-  width: 90%;
-  grid-area: hours;
-}
-#minuteSelect{
-  width: 90%;
-  grid-area: minutes;
-}
-#replaySpeedSelect{
-  grid-area: speedSelect;
-  width: 90%;
-}
-#replayTimeHint{
-   grid-area: timeHint;
-}
-#replayDateHintLocal{
-  grid-area: dateHintLocal;
-}
-#replayDateHint{
-  grid-area: dateHint;
-}
-#replaySpeedHint{
-  grid-area: speedHint;
-}
 #E.emergencyAlert {
     animation: flashEmergency 1.3s infinite;
 }

@@ -24,12 +24,21 @@ let OLMap = null;
 let OLProj = null;
 let OLProjExtent = null;
 let PlaneIconFeatures = new ol.source.Vector();
+// Satellites get their own vector source/layer (see satelliteIconLayer below)
+// rather than sharing PlaneIconFeatures with aircraft. zIndex alone wasn't a
+// reliable way to guarantee "always on top": it only orders features within
+// ONE layer, and satellites vs. WebGL-rendered aircraft are necessarily two
+// different layers (WebGL has no satellite sprite). A dedicated layer with a
+// zIndex well above both the WebGL and vector aircraft layers sidesteps that
+// entirely - there's no ambiguity left for OpenLayers to resolve.
+let SatelliteIconFeatures = new ol.source.Vector();
 let trailGroup = new ol.Collection();
 let siteCircleLayer;
 let siteCircleFeatures = new ol.source.Vector();
 let locationDotLayer;
 let locationDotFeatures = new ol.source.Vector();
 let iconLayer;
+let satelliteIconLayer;
 let trailLayers;
 let heatFeatures = [];
 let heatFeaturesSpread = 1024;
@@ -48,6 +57,9 @@ let aisTrackMaxHours = 1;
 let SelectedAllPlanes = false;
 window.ShowMarine = true;
 window.ShowAir = true;
+window.ShowSatellites = true;
+let satellitesShown = 0;
+let satellitesTotal = 0;
 let HighlightedPlane = null;
 let FollowSelected = false;
 let followPos = [];
@@ -91,7 +103,17 @@ let firstFetch = true;
 let debugCounter = 0;
 let pathName = window.location.pathname.replace(/\/+/, '/') || "/";
 let sourcesFilter = null;
-let sources = ['adsb', ['uat', 'adsr'], 'mlat', 'tisb', 'modeS', 'other', 'adsc', 'ais'];
+let sources = ['adsb', ['uat', 'adsr'], 'mlat', 'tisb', 'modeS', 'other', 'adsc', 'ais', 'sat'];
+
+// tableColors (unselected/selected color-by-source palettes) is defined in a
+// stock file this session never touched, so a new source key can't be added
+// to its own definition directly - inject it here instead. Picked deliberately
+// far from every existing source color (adsb/uat/mlat/tisb/modeS/other/adsc/ais)
+// to guarantee no accidental clash with whatever palette that file uses.
+if (typeof tableColors !== 'undefined') {
+    if (tableColors.unselected && !tableColors.unselected.sat) tableColors.unselected.sat = '#00bcd4';
+    if (tableColors.selected && !tableColors.selected.sat) tableColors.selected.sat = '#00bcd4';
+}
 let flagFilter = null;
 let flagFilterValues = ['military', 'pia', 'ladd'];
 let showTrace = false;
@@ -139,7 +161,6 @@ let nextQuerySelected = 0;
 let enableDynamicCachebusting = false;
 g.lastRefreshInt = 1000;
 let reapTimeout = globeIndex ? 240 : 480;
-
 
 let baroCorrectQNH = 1013.25;
 
@@ -351,6 +372,7 @@ function processReceiverUpdate(data, init) {
         processAircraft(data.aircraft[j], init, uat);
     }
 }
+let lastFetchFailStatus = null;
 function fetchFail(jqxhr, status, error) {
     try {
         pendingFetches--;
@@ -361,8 +383,30 @@ function fetchFail(jqxhr, status, error) {
         status = jqxhr.status;
         if (jqxhr.readyState == 0) error = "Can't connect to server, check your network!";
         let errText = status + (error ? (": " + error) : "");
-        console.log(jqxhr);
-        console.log(error);
+        // Only log a full jqxhr/error dump when the failure status actually
+        // changes, not on every single retry - during a restart it can take
+        // a couple of minutes for the server to start producing data, and
+        // that shows up here as the exact same 404 repeated on every poll
+        // (every ~1s). The #update_error banner below already communicates
+        // that to the user; repeating a full object dump ~100+ times adds
+        // real console overhead (particularly costly in Safari specifically
+        // when devtools is attached) for a condition that's already visible
+        // and expected.
+        if (status !== lastFetchFailStatus) {
+            console.log(jqxhr);
+            console.log(error);
+            lastFetchFailStatus = status;
+        }
+        // Before the very first successful fetch, a 404 almost always means
+        // the receiver (readsb) is still starting up and hasn't written its
+        // first data file yet - not a real error. Say so plainly instead of
+        // showing a raw HTTP status, which reads as broken rather than
+        // "wait a moment". Once we've had at least one successful fetch,
+        // any later failure is a genuine, more concerning loss of contact,
+        // so keep showing the real status/error text for that case.
+        if (firstFetch && status == 404) {
+            errText = "Waiting for the receiver to start up\u2026 this can take a few minutes after a restart.";
+        }
         if (status != 429 && status != '429') {
             jQuery("#update_error_detail").text(errText);
             jQuery("#update_error").css('display','block');
@@ -473,6 +517,10 @@ function fetchDone(data) {
             StaleReceiverCount = 0;
             jQuery("#update_error").css('display','none');
         }
+        // A successful fetch means we've recovered - let the next failure
+        // (whatever status it is) log fresh rather than staying suppressed
+        // from a prior, now-resolved outage.
+        lastFetchFailStatus = null;
     } catch (e) {
         console.error(e);
     }
@@ -1108,7 +1156,11 @@ function earlyInitPage() {
 	        },
 	    });
 	// end AIS Track slider
-	
+
+	// Satellite layer toggle: restore the last state (defaults to on)
+	window.ShowSatellites = (loStore['ShowSatellites'] != null) ? (loStore['ShowSatellites'] == 'true') : true;
+	buttonActive('#Sa', window.ShowSatellites);
+
     setGlobalScale(userScale, "init");
 
     if (usp.has('hideButtons'))
@@ -1335,6 +1387,14 @@ function earlyInitPage() {
 
     jQuery('#settings_close').on('click', function() {
         jQuery('#settings_infoblock').hide();
+    });
+
+    jQuery('#AB').on('click', function() {
+        showAbout();
+    });
+
+    jQuery('#about_close').on('click', function() {
+        jQuery('#about_infoblock').hide();
     });
 
     jQuery('#groundvehicle_filter').on('click', function() {
@@ -1824,6 +1884,7 @@ function initLegend(colors) {
         html += '<div class="legendTitle" style="background-color:' + colors['other'] + ';">Other</div>';
     if (aiscatcher_server)
         html += '<div class="legendTitle" style="background-color:' + colors['ais'] + ';">AIS</div>';
+    html += '<div class="legendTitle" style="background-color:' + colors['sat'] + ';">Satellite</div>';
     html += '<div class="legendTitle" style="background-color:' + colors['adsc'] + `;">${jaeroLabel}</div>`;
 
     document.getElementById('legend').innerHTML = html;
@@ -1835,18 +1896,35 @@ function initSourceFilter(colors) {
     };
 
     let html = '';
-    html += createFilter(colors['adsb'], 'ADS-B', sources[0]);
+    // Tracks exactly which `sources` entry each rendered <li> corresponds to,
+    // in order. Needed because AIS's entry (and now Satellite's) render
+    // conditionally - a plain DOM-index lookup into the `sources` array breaks
+    // the moment any earlier entry in that array is skipped, which a second
+    // conditional entry made an active risk rather than a theoretical one.
+    const renderedKeys = [];
 
+    html += createFilter(colors['adsb'], 'ADS-B', sources[0]);
+    renderedKeys.push(sources[0]);
     html += createFilter(colors['uat'], 'UAT / ADS-R', sources[1][0]);
+    renderedKeys.push(sources[1]);
     html += createFilter(colors['mlat'], 'MLAT', sources[2]);
+    renderedKeys.push(sources[2]);
     html += createFilter(colors['tisb'], 'TIS-B', sources[3]);
+    renderedKeys.push(sources[3]);
     html += createFilter(colors['modeS'], 'Mode-S', sources[4]);
+    renderedKeys.push(sources[4]);
     html += createFilter(colors['other'], 'Other', sources[5]);
+    renderedKeys.push(sources[5]);
     html += createFilter(colors['adsc'], jaeroLabel, sources[6]);
+    renderedKeys.push(sources[6]);
 
     if (aiscatcher_server) {
         html += createFilter(colors['ais'], 'AIS', sources[7]);
+        renderedKeys.push(sources[7]);
     }
+
+    html += createFilter(colors['sat'], 'Satellite', sources[8]);
+    renderedKeys.push(sources[8]);
 
     document.getElementById('sourceFilter').innerHTML = html;
 
@@ -1855,10 +1933,11 @@ function initSourceFilter(colors) {
             sourcesFilter = [];
             jQuery(".ui-selected", this).each(function () {
                 const index = jQuery("#sourceFilter li").index(this);
-                if (Array.isArray(sources[index]))
-                    sources[index].forEach(member => { sourcesFilter.push(member); });
+                const key = renderedKeys[index];
+                if (Array.isArray(key))
+                    key.forEach(member => { sourcesFilter.push(member); });
                 else
-                    sourcesFilter.push(sources[index]);
+                    sourcesFilter.push(key);
             });
         }
     });
@@ -2400,6 +2479,54 @@ function getStatusDescription(squawk) {
     return aisStatusDescriptions[squawk] || "";
 }
 
+const aircraftStatusDescriptions = {
+    "0000": "Transponder Mode C Fault Indication",
+    "0001": "Height Monitoring Unit",
+    "0002": "Ground Transponder Testing",
+    "0003": "Air Ambulance / HEMS Operations",
+    "0006": "Police Aviation Support Unit",
+    "0007": "Off-shore Safety Area Conspicuity",
+    "0010": "Local Aerodrome Frequency-Monitoring Conspicuity",
+    "0011": "Local Aerodrome Frequency-Monitoring Conspicuity",
+    "0012": "Local Aerodrome Frequency-Monitoring Conspicuity",
+    "0013": "Local Aerodrome Frequency-Monitoring Conspicuity",
+    "0014": "Air Ambulance / HEMS Operations",
+    "0015": "Air Ambulance / HEMS Operations",
+    "0016": "Air Ambulance / HEMS Operations",
+    "0017": "Air Ambulance / HEMS Operations",
+    "0020": "Air Ambulance / Helicopter Emergency Medevac",
+    "0021": "Fixed-Wing Aircraft Receiving Service from a Ship",
+    "0022": "Helicopter Receiving Service from a Ship",
+    "0023": "Aircraft Engaged in Search and Rescue (SAR) Operations",
+    "0024": "Radar Flight Evaluation / Calibration",
+    "0026": "Special Tasks",
+    "0030": "Aircraft Lost / Requesting Navigational Assistance",
+    "0032": "Police Air Support Operations",
+    "0033": "Aircraft Paradropping",
+    "0034": "Antenna Trailing / Target Towing / Glider Towing",
+    "0036": "Helicopter Pipeline / Powerline Inspection",
+    "0037": "Royal Flight — Helicopters",
+    "0040": "Civil Helicopter Operations (Offshore)",
+    "1000": "Mode S IFR — Validated Aircraft Identification Matching Flight Plan",
+    "1200": "VFR Conspicuity (USA)",
+    "2000": "IFR Conspicuity — Not Receiving ATC Service",
+    "7000": "VFR Conspicuity (ICAO default)",
+    "7002": "Danger Area Operations (General)",
+    "7004": "Aerobatics / Display Flying",
+    "7005": "High-Energy Manoeuvres (Military Fast-Jet)",
+    "7007": "Treaty on Open Skies — Observation Flight",
+    "7010": "Operating in an Aerodrome Traffic Pattern",
+    "7400": "UAV Lost Link (US/UK)",
+    "7500": "Unlawful Interference (Hijack)",
+    "7600": "Radio Communication Failure",
+    "7601": "Radio Communication Failure (EASA/SERA)",
+    "7700": "General Emergency",
+};
+
+function getAircraftStatusDescription(squawk) {
+    return aircraftStatusDescriptions[squawk] || "";
+}
+
 // start ship track 
 function fetchVesselTrack(mmsi) {
     if (!aiscatcher_server || !mmsi || !g.aisTrackSource) return;
@@ -2762,7 +2889,11 @@ function webglAddLayer() {
         webglLayer = new ol.layer.WebGLPoints({
             name: 'webglLayer',
             type: 'overlay',
-            title: 'Aircraft pos. webGL',
+            // No title: intentionally excluded from the layer switcher panel -
+            // ol-layerswitcher only lists layers that have a title property
+            // (there's no separate opt-out flag), and this layer's visibility
+            // is controlled by the dedicated "Aircraft pos. webGL" checkbox
+            // in the settings panel instead.
             source: webglFeatures,
             declutter: false,
             zIndex: 200,
@@ -2977,9 +3108,8 @@ function ol_map_init() {
         let trailTS = null;
         let planeHex = null;
 
-        let source = webgl ? webglFeatures : PlaneIconFeatures;
         let evtCoords = evt.map.getCoordinateFromPixel(evt.pixel);
-        let feature = source.getClosestFeatureToCoordinate(evtCoords);
+        let feature = getClosestPlaneFeature(evtCoords);
         if (feature) {
             let fPixel = evt.map.getPixelFromCoordinate(feature.getGeometry().getCoordinates());
             let a = fPixel[0] - evt.pixel[0];
@@ -3233,13 +3363,28 @@ function initMap() {
     iconLayer = new ol.layer.Vector({
         name: 'iconLayer',
         type: 'overlay',
-        title: 'Aircraft positions',
+        // No title - see the webglLayer comment above; same reasoning, the
+        // "Aircraft positions" checkbox in the settings panel is the real
+        // control, ol-layerswitcher has no separate opt-out flag to use.
         source: PlaneIconFeatures,
         declutter: false,
         zIndex: 200,
         renderBuffer: renderBuffer,
     });
     layers.push(iconLayer);
+
+    // Deliberately well above the aircraft layers (WebGL layer and iconLayer
+    // both sit at 200) - satellites should always paint on top, unconditionally.
+    satelliteIconLayer = new ol.layer.Vector({
+        name: 'satelliteIconLayer',
+        type: 'overlay',
+        // No title - same reasoning as iconLayer above.
+        source: SatelliteIconFeatures,
+        declutter: false,
+        zIndex: 500,
+        renderBuffer: renderBuffer,
+    });
+    layers.push(satelliteIconLayer);
 
 
     ol_map_init();
@@ -3658,19 +3803,240 @@ function refreshPageTitle() {
     }
 }
 
+const vesselPhotoCache = new Map();
+
+function displayVesselNoImage() {
+    jQuery('#selected_photo').html('<div style="width:171px;font-size:12px;color:currentColor;">No vessel image available</div>');
+    jQuery('#copyrightInfo').html('');
+}
+
 function displaySil() {
-    jQuery('#copyrightInfo').html("");
-    if (!showSil) {
-        setPhotoHtml("");
-        return;
+    jQuery('#selected_photo').html('<div style="width:171px;font-size:12px;color:currentColor;">No aircraft image available</div>');
+    jQuery('#copyrightInfo').html('');
+}
+
+// displaySatelliteNoImage() mirrors displayVesselNoImage()/displaySil() above
+// rather than calling displaySil() itself, since at the time this was written
+// displaySil() didn't exist yet in this build (now fixed above) - kept as its
+// own function since satellites want their own wording.
+function displaySatelliteNoImage() {
+    jQuery('#selected_photo').html('<div style="width:171px;font-size:12px;color:currentColor;">No satellite image available</div>');
+    jQuery('#copyrightInfo').html('');
+}
+
+async function commonsVesselPhoto(vesselName) {
+  if (!vesselName) return null;
+
+  const key = vesselName.trim().toUpperCase();
+
+  if (vesselPhotoCache.has(key)) {
+    return vesselPhotoCache.get(key);
+  }
+
+  const request = (async () => {
+    const params = new URLSearchParams({
+      action: "query",
+      format: "json",
+      origin: "*",
+      generator: "search",
+      gsrnamespace: "6",
+      gsrlimit: "1",
+      gsrsearch: `intitle:"${vesselName.trim()}"`,
+      prop: "imageinfo",
+      iiprop: "url|extmetadata",
+      iiurlwidth: "342",
+      iiextmetadatafilter: "Artist|LicenseShortName"
+    });
+
+    const response = await fetch(
+      "https://commons.wikimedia.org/w/api.php?" + params
+    );
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const page = Object.values(data.query?.pages || {})[0];
+    const info = page?.imageinfo?.[0];
+    if (!info) return null;
+
+    const url = info.thumburl || info.url;
+    if (!url) return null;
+
+    const meta = info.extmetadata || {};
+    const artist = meta.Artist ? meta.Artist.value.replace(/<[^>]+>/g, '').trim() : null;
+    const license = meta.LicenseShortName ? meta.LicenseShortName.value : null;
+    const attribution = artist
+        ? `${artist}${license ? ' — ' + license : ''} — via Wikimedia Commons`
+        : 'Wikimedia Commons';
+
+    return { url, attribution };
+  })();
+
+  vesselPhotoCache.set(key, request);
+
+  try {
+    return await request;
+  } catch (error) {
+    vesselPhotoCache.delete(key);
+    throw error;
+  }
+}
+
+const satellitePhotoCache = new Map();
+
+// Looks up a satellite's photo by its exact NORAD Catalog Number, via Wikidata
+// property P377 ("Satellite Catalog Number") - NOT by searching Commons for the
+// satellite's name. The name the SBS feeder carries is stripped to 8 alphanumeric
+// characters (see app.js), which is frequently ambiguous or truncated in a way
+// that loses the identifying part (e.g. "INTELSAT39" -> "INTELSAT", "COSMOS2251"
+// -> "COSMOS22") - a text search on that would confidently return images of the
+// WRONG satellite. Matching on the catalog number instead is an exact, unambiguous
+// identifier: either Wikidata has an item with that precise P377 value, or it
+// doesn't, with no room for a plausible-looking wrong match in between.
+//
+// Three calls, each only made if the previous one succeeds:
+//   1. Search Wikidata for the item with P377 == this exact NORAD ID.
+//   2. Fetch that item's claims to read its P18 (image) statement, if any.
+//   3. Resolve that Commons filename to an actual thumbnail URL + attribution,
+//      via the same imageinfo/extmetadata pattern commonsVesselPhoto() uses.
+async function wikidataSatellitePhoto(noradId) {
+  if (noradId == null) return null;
+
+  const key = String(noradId);
+  if (satellitePhotoCache.has(key)) {
+    return satellitePhotoCache.get(key);
+  }
+
+  const request = (async () => {
+    // P377 is stored as a zero-padded 5-digit string ('00266', '25544', ...).
+    // Only pad up to 5 digits - newer 6+ digit Alpha-5/GP catalog numbers are
+    // not zero-padded in Wikidata, so padding those further would break the match.
+    const catalogNumber = String(noradId).padStart(5, '0');
+
+    const searchParams = new URLSearchParams({
+      action: "query",
+      format: "json",
+      origin: "*",
+      list: "search",
+      srsearch: `haswbstatement:P377=${catalogNumber}`,
+      srlimit: "1",
+    });
+    const searchResp = await fetch("https://www.wikidata.org/w/api.php?" + searchParams);
+    if (!searchResp.ok) return null;
+    const searchData = await searchResp.json();
+    const qid = searchData.query?.search?.[0]?.title;
+    if (!qid) return null; // no Wikidata item carries this exact catalog number
+
+    const entityParams = new URLSearchParams({
+      action: "wbgetentities",
+      format: "json",
+      origin: "*",
+      ids: qid,
+      props: "claims",
+    });
+    const entityResp = await fetch("https://www.wikidata.org/w/api.php?" + entityParams);
+    if (!entityResp.ok) return null;
+    const entityData = await entityResp.json();
+    const filename = entityData.entities?.[qid]?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+    if (!filename) return null; // matched the satellite, but that item has no image
+
+    const imageParams = new URLSearchParams({
+      action: "query",
+      format: "json",
+      origin: "*",
+      titles: "File:" + filename,
+      prop: "imageinfo",
+      iiprop: "url|extmetadata",
+      iiurlwidth: "342",
+      iiextmetadatafilter: "Artist|LicenseShortName",
+    });
+    const imageResp = await fetch("https://commons.wikimedia.org/w/api.php?" + imageParams);
+    if (!imageResp.ok) return null;
+    const imageData = await imageResp.json();
+    const page = Object.values(imageData.query?.pages || {})[0];
+    const info = page?.imageinfo?.[0];
+    if (!info) return null;
+
+    const url = info.thumburl || info.url;
+    if (!url) return null;
+
+    const meta = info.extmetadata || {};
+    const artist = meta.Artist ? meta.Artist.value.replace(/<[^>]+>/g, '').trim() : null;
+    const license = meta.LicenseShortName ? meta.LicenseShortName.value : null;
+    const attribution = artist
+        ? `${artist}${license ? ' — ' + license : ''} — via Wikimedia Commons / Wikidata`
+        : 'Wikimedia Commons / Wikidata';
+
+    return { url, attribution };
+  })();
+
+  satellitePhotoCache.set(key, request);
+
+  try {
+    return await request;
+  } catch (error) {
+    satellitePhotoCache.delete(key);
+    throw error;
+  }
+}
+
+// Satellites' true orbital altitude arrives from app.js pre-divided by
+// SAT_ALT_SCALE, not as the true value directly - see app.js's comment on
+// that constant for the full reasoning (short version: disabling binCraft
+// should have been enough on its own, but if some other component in a
+// pipeline we don't have source access to still assumes aircraft-scale
+// altitude, dividing by a large safety factor before transmission - so every
+// number on the wire looks like an ordinary aircraft altitude to every
+// consumer - is safe against that regardless of exactly where it lives).
+// MUST match the identical constant in app.js's buildHexId/broadcastTCP exactly.
+const SAT_ALT_SCALE = 5000;
+
+function descaleSatelliteAltitudeFt(scaledAltitudeFt) {
+    if (scaledAltitudeFt == null || !Number.isFinite(scaledAltitudeFt)) return null;
+    return scaledAltitudeFt * SAT_ALT_SCALE;
+}
+
+// format_altitude_*() and adjust_baro_alt() are meant for aircraft-scale
+// altitude only - see the NaN risk noted where this function is called from -
+// so satellites need this dedicated formatter entirely, never touching that
+// pipeline. Mirrors the same three DisplayUnits conventions used elsewhere in
+// this file (e.g. the site-circle distance conversion) rather than inventing
+// a new unit convention for this one field.
+function formatSatelliteAltitude(scaledAltitudeFt) {
+    const altitudeFt = descaleSatelliteAltitudeFt(scaledAltitudeFt);
+    if (altitudeFt == null) return "n/a";
+    const km = altitudeFt / 3280.84;
+    if (DisplayUnits === "nautical") {
+        return Math.round(km / 1.852).toLocaleString() + ' nmi';
+    } else if (DisplayUnits === "imperial") {
+        return Math.round(km / 1.609).toLocaleString() + ' mi';
+    } else {
+        return Math.round(km).toLocaleString() + ' km';
     }
-    let selected = SelectedPlane;
-    let new_html="";
-    let type = selected.icaoType ? selected.icaoType : 'ZZZZ';
-    let hex = selected.icao.toUpperCase();
-    new_html = "<img id='silhouette' width='"+ 151 * globalScale + "' src='aircraft_sil/" + type + ".png' />";
-    setPhotoHtml(new_html);
-    selected.icao.toUpperCase();
+}
+
+// Simple altitude-banded orbit classification, in the same spirit as the
+// category system - not a substitute for real orbital mechanics (eccentric/
+// highly-elliptical orbits genuinely don't fit cleanly into one band at all
+// altitudes along their path), just a plain-text label matching the common
+// industry shorthand for "roughly what kind of orbit is this".
+//   < 2,000km             -> Low Earth Orbit
+//   2,000km - 35,586km    -> Medium Earth Orbit
+//   35,586km - 35,986km   -> Geostationary  (35,786km +/- 200km)
+//   > 35,986km            -> High Earth Orbit
+function getSatelliteOrbitClass(altitudeKm) {
+    if (altitudeKm == null || !Number.isFinite(altitudeKm)) return "n/a";
+    if (altitudeKm < 2000) return "Low Earth Orbit";
+    if (altitudeKm < 35586) return "Medium Earth Orbit";
+    if (altitudeKm < 35986) return "Geostationary";
+    return "High Earth Orbit";
+}
+
+// Convenience: straight from the as-transmitted (scaled) wire value to the
+// orbit label, so call sites don't need to know about descaling at all.
+function formatSatelliteOrbit(scaledAltitudeFt) {
+    const altitudeFt = descaleSatelliteAltitudeFt(scaledAltitudeFt);
+    if (altitudeFt == null) return "n/a";
+    return getSatelliteOrbitClass(altitudeFt / 3280.84);
 }
 
 function displayPhoto() {
@@ -3683,24 +4049,64 @@ function displayPhoto() {
 
     const icao = SelectedPlane.icao || "";
 
+    // --- Satellites: looked up by exact NORAD Catalog Number, not by name ---
+    if (SelectedPlane.isSatellite) {
+        const sat = SelectedPlane;
+        const noradId = sat.satNoradId;
+
+        wikidataSatellitePhoto(noradId)
+          .then(result => {
+            if (SelectedPlane !== sat) return; // discard a stale lookup
+
+            if (result) {
+              setPhotoHtml(
+                '<img id="airplanePhoto" src="' + escapeHtml(result.url) +
+                '" style="width:171px;" onerror="displaySatelliteNoImage();">'
+              );
+              jQuery('#copyrightInfo').html('<span>Image © ' + escapeHtml(result.attribution) + '</span>');
+            } else {
+              displaySatelliteNoImage();
+            }
+            adjustInfoBlock();
+          })
+          .catch(() => {
+            if (SelectedPlane === sat) {
+              displaySatelliteNoImage();
+              adjustInfoBlock();
+            }
+          });
+
+        return;
+    }
+
     // --- AIS vessels (detected by IMO / MMSI prefix) ---
 	if (icao.startsWith("MMSI")) {
-	    const numericMMSI = icao.replace(/^MMSI/i, "");
-	    const hasImo = SelectedPlane.imo && Number(SelectedPlane.imo) > 0;
+	  const vessel = SelectedPlane;
+	  const vesselName = vessel.registration;
 
-	    const mmsiURL = "https://photos.marinetraffic.com/ais/showphoto.aspx?mmsi=" + encodeURIComponent(numericMMSI);
-	    const imoURL = hasImo ? "https://photos.marinetraffic.com/ais/showphoto.aspx?imo=" + encodeURIComponent(SelectedPlane.imo) : null;
+	  commonsVesselPhoto(vesselName)
+	    .then(result => {
+	      if (SelectedPlane !== vessel) return; // discard a stale lookup
 
-	    const primaryURL = imoURL || mmsiURL;
-	    const fallbackURL = imoURL ? mmsiURL : ""; // empty string = no fallback, go straight to "no image"
+	      if (result) {
+	        setPhotoHtml(
+	          '<img id="airplanePhoto" src="' + escapeHtml(result.url) +
+	          '" style="width:171px;" onerror="displayVesselNoImage();">'
+	        );
+	        jQuery('#copyrightInfo').html('<span>Image © ' + escapeHtml(result.attribution) + '</span>');
+	      } else {
+	        displayVesselNoImage();
+	      }
+	      adjustInfoBlock();
+	    })
+	    .catch(() => {
+	      if (SelectedPlane === vessel) {
+	        displayVesselNoImage();
+	        adjustInfoBlock();
+	      }
+	    });
 
-	    setPhotoHtml(
-	        '<img id="airplanePhoto" src="' + primaryURL + '" data-fallback-src="' + fallbackURL + '" ' +
-	        'style="width:171px;" onerror="handleVesselPhotoError(this);" onload="handleVesselPhotoLoad();">'
-	    );
-
-	    adjustInfoBlock();
-	    return;
+	  return;
 	}
 
     // --- Aircraft images ---
@@ -3738,6 +4144,12 @@ function displayPhoto() {
 function refreshPhoto(selected) {
 
     const icao = selected.icao || "";
+
+    // --- Satellites: same lookup as vessels, re-run through displayPhoto() ---
+    if (selected.isSatellite) {
+        displayPhoto();
+        return;
+    }
 
     // --- AIS vessels ---
     if (icao.startsWith("MMSI")) {
@@ -3894,10 +4306,18 @@ function refreshSelected() {
         jQuery('#reg_info').removeClass('hidden');
     }
 
-    let checkReg = selected.registration + ' ' + selected.dbinfoLoaded;
+    let checkReg = selected.registration + ' ' + selected.dbinfoLoaded + ' ' + selected.isSatellite + ' ' + selected.flight;
     if (checkReg != selReg) {
         selReg = checkReg;
-        if (selected.registration) {
+        jQuery('#registration_label').attr('title', selected.isSatellite
+            ? 'Satellite name, as carried in the TLE data set this object was fetched from'
+            : 'Registration: The alphanumeric registration code assigned by the country in which the aircraft is registered.');
+        if (selected.isSatellite) {
+            // Satellites have no registration - show the TLE object name (the
+            // callsign the SBS feeder carries it under) in the same slot instead.
+            const satName = (selected.flight && selected.flight.trim()) ? selected.flight.trim() : selected.icao.toUpperCase();
+            jQuery('#selected_registration').updateText(satName);
+        } else if (selected.registration) {
             if (flightawareLinks) {
                 jQuery('#selected_registration').html(getFlightAwareIdentLink(selected.registration, selected.registration));
             } else if (registrationLinks && registrationLink(selected)) {
@@ -3922,7 +4342,16 @@ function refreshSelected() {
         jQuery('#selected_dbFlags').html(dbFlags.slice(0, -3));
     }
 
-    if (selected.icaoType) {
+    const satCatDef = selected.isSatellite
+        ? ((typeof SAT_CATEGORIES !== 'undefined' && (SAT_CATEGORIES[selected.satCategory] || SAT_CATEGORIES.other)) || null)
+        : null;
+
+    if (satCatDef) {
+        // "Type" -> the satellite category (STATION / VISUAL / MILITARY / ...),
+        // "Type Long" -> the full label for that same category.
+        jQuery('#selected_icaotype').updateText(satCatDef.short);
+        jQuery('#selected_typelong').updateText(satCatDef.label);
+    } else if (selected.icaoType) {
         jQuery('#selected_icaotype').updateText(selected.icaoType);
     } else {
         jQuery('#selected_icaotype').updateText("n/a");
@@ -3932,15 +4361,17 @@ function refreshSelected() {
     else
         jQuery('#selected_typedesc').updateText("n/a");
 
-    let typeLine = "";
-    if (selected.year)
-        typeLine += selected.year + " "
-    if (selected.typeLong)
-        typeLine += selected.typeLong;
-    if (!typeLine)
-        typeLine = "n/a"
+    if (!satCatDef) {
+        let typeLine = "";
+        if (selected.year)
+            typeLine += selected.year + " "
+        if (selected.typeLong)
+            typeLine += selected.typeLong;
+        if (!typeLine)
+            typeLine = "n/a"
 
-    jQuery('#selected_typelong').updateText(typeLine);
+        jQuery('#selected_typelong').updateText(typeLine);
+    }
 
     if (selected.ownOp)
         jQuery('#selected_ownop').updateText(selected.ownOp);
@@ -3955,13 +4386,19 @@ function refreshSelected() {
     }
 
 
-    jQuery("#selected_altitude1").updateText(format_altitude_long(adjust_baro_alt(selected.altitude), selected.vert_rate, DisplayUnits));
-    jQuery("#selected_altitude2").updateText(format_altitude_long(adjust_baro_alt(selected.altitude), selected.vert_rate, DisplayUnits));
+    if (selected.isSatellite) {
+        const satAlt = formatSatelliteAltitude(selected.altitude);
+        jQuery("#selected_altitude1").updateText(satAlt);
+        jQuery("#selected_altitude2").updateText(satAlt);
+    } else {
+        jQuery("#selected_altitude1").updateText(format_altitude_long(adjust_baro_alt(selected.altitude), selected.vert_rate, DisplayUnits));
+        jQuery("#selected_altitude2").updateText(format_altitude_long(adjust_baro_alt(selected.altitude), selected.vert_rate, DisplayUnits));
+    }
 
     jQuery('#selected_onground').updateText(format_onground(selected.altitude));
 
-	// Hide squawk for ais
-	if (selected.dataSource === 'ais') {
+	// Hide squawk for ais and for satellites (neither has a real Mode A/C squawk)
+	if (selected.dataSource === 'ais' || selected.isSatellite) {
 	    jQuery('#squawkRowContainer').hide(); 
 	} else {
 	    // This shows the entire table row
@@ -3973,6 +4410,19 @@ function refreshSelected() {
 	}
 
 	if (selected) {
+	    // #routeRow's visibility is otherwise only set once, by the "Lookup route"
+	    // settings toggle - it doesn't get revisited per selection. Satellites need
+	    // an explicit override here regardless of that setting, and non-satellites
+	    // need to be explicitly restored to the setting's state in case a satellite
+	    // was selected previously and hid it.
+	    if (selected.isSatellite) {
+	        jQuery('#routeRow').hide();
+	    } else if (useRouteAPI) {
+	        jQuery('#routeRow').show();
+	    } else {
+	        jQuery('#routeRow').hide();
+	    }
+
 	    if (useRouteAPI && selected.routeString) {
 	        jQuery('#selected_route').updateText(selected.routeString);
 	        jQuery('#selected_route').attr('title', selected.routeVerbose);
@@ -4110,6 +4560,13 @@ function refreshSelected() {
 	}
 
 	jQuery('#selected_country').updateText(displayCountry);
+	// Satellites fall in an unallocated ICAO block, so this always reads
+	// "Unassigned" - not wrong, just useless. Hide the row entirely instead.
+	if (selected.isSatellite) {
+	    jQuery('#selected_country').closest('tr').hide();
+	} else {
+	    jQuery('#selected_country').closest('tr').show();
+	}
     if (selected.position == null) {
         jQuery('#selected_position').updateText('n/a');
     } else {
@@ -4125,10 +4582,26 @@ function refreshSelected() {
         sitedist = ol.sphere.getDistance(SitePosition, selected.position);
     }
     jQuery('#selected_source').updateText(format_data_source(selected.dataSource));
-    jQuery('#selected_category').updateText(selected.category ? selected.category : "n/a");
-    jQuery('#selected_category_label').updateText(get_category_label(selected.category));
-    jQuery('#selected_sitedist1').updateText(format_distance_long(sitedist, DisplayUnits));
-    jQuery('#selected_sitedist2').updateText(format_distance_long(sitedist, DisplayUnits));
+    if (selected.isSatellite) {
+        const def = (typeof SAT_CATEGORIES !== 'undefined' && (SAT_CATEGORIES[selected.satCategory] || SAT_CATEGORIES.other));
+        jQuery('#selected_category').updateText(def ? def.short : "SAT");
+        jQuery('#selected_category_label').updateText(def ? def.label : "Satellite");
+    } else {
+        jQuery('#selected_category').updateText(selected.category ? selected.category : "n/a");
+        jQuery('#selected_category_label').updateText(get_category_label(selected.category));
+    }
+    if (selected.isSatellite) {
+        jQuery('#sitedist_label').text('Orbit');
+        jQuery('#sitedist_label').attr('title', 'Approximate orbit classification, based on altitude');
+        const orbitClass = formatSatelliteOrbit(selected.altitude);
+        jQuery('#selected_sitedist1').updateText(orbitClass);
+        jQuery('#selected_sitedist2').updateText(orbitClass);
+    } else {
+        jQuery('#sitedist_label').text('Distance');
+        jQuery('#sitedist_label').attr('title', 'Distance of the aircraft from your ADS-B site at its last known position');
+        jQuery('#selected_sitedist1').updateText(format_distance_long(sitedist, DisplayUnits));
+        jQuery('#selected_sitedist2').updateText(format_distance_long(sitedist, DisplayUnits));
+    }
     jQuery('#selected_rssi1').updateText(selected.rssi != null ? selected.rssi.toFixed(1) : "n/a");
     if (
         ((selected.messages == undefined && selected.receiverCount) || (globeIndex && binCraft))
@@ -4246,7 +4719,10 @@ function refreshSelected() {
     }
 
 	// Extended status description
-	if (selected && selected.dataSource === 'ais' && selected.statusDescription) {
+	if (selected && selected.dataSource !== 'ais' && getAircraftStatusDescription(selected.squawk)) {
+	    jQuery('#selected_status_desc').text(getAircraftStatusDescription(selected.squawk));
+	    jQuery('#statusRowSelected').show();
+	} else if (selected && selected.dataSource === 'ais' && selected.statusDescription) {
 	    jQuery('#selected_status_desc').text(selected.statusDescription);
 	    jQuery('#statusRowSelected').show();
 	} else {
@@ -4291,6 +4767,13 @@ function refreshSelected() {
 	    } else {
 	        jQuery('#selected_typedesc').closest('tr').hide();
 	    }
+	} else if (selected && selected.isSatellite) {
+	    // Type / Type Long carry the satellite category (set above); there's no
+	    // ICAO type-description equivalent (engine count/config) for a satellite,
+	    // so that row has nothing useful to show and stays hidden.
+	    jQuery('#icaoTypeRowSelected').show();
+	    jQuery('#typeLongRowSelected').show();
+	    jQuery('#selected_typedesc').closest('tr').hide();
 	} else {
 	    // Restore default layout behavior for aircraft
 	    jQuery('#icaoTypeRowSelected').show();
@@ -4379,7 +4862,9 @@ function refreshHighlighted() {
 
     jQuery('#highlighted_speed').text(format_speed_long(highlighted.gs, DisplayUnits));
 
-    jQuery("#highlighted_altitude").text(format_altitude_long(adjust_baro_alt(highlighted.altitude), highlighted.vert_rate, DisplayUnits));
+    jQuery("#highlighted_altitude").text(highlighted.isSatellite
+        ? formatSatelliteAltitude(highlighted.altitude)
+        : format_altitude_long(adjust_baro_alt(highlighted.altitude), highlighted.vert_rate, DisplayUnits));
 
     jQuery('#highlighted_pf_route').text((highlighted.pfRoute ? highlighted.pfRoute : highlighted.icao.toUpperCase()));
 
@@ -4558,7 +5043,7 @@ function refreshFeatures() {
     cols.altitude = {
         text: 'Altitude',
         sort: function () { sortBy('altitude',compareNumeric, function(x) { return (x.altitude == "ground" ? -100000 : x.altitude); }); },
-        value: function(plane) { return format_altitude_brief(adjust_baro_alt(plane.altitude), plane.vert_rate, DisplayUnits); },
+        value: function(plane) { return plane.isSatellite ? formatSatelliteAltitude(plane.altitude) : format_altitude_brief(adjust_baro_alt(plane.altitude), plane.vert_rate, DisplayUnits); },
         align: 'right',
         header: function () { return 'Alt.' + NBSP + '(' + get_unit_label("altitude", DisplayUnits) + ')';},
     };
@@ -4579,7 +5064,7 @@ function refreshFeatures() {
     cols.sitedist = {
         text: pTracks ? 'Max. Distance' : 'Distance',
         sort: function () { sortBy('sitedist',compareNumeric, function(x) { return x.sitedist; }); },
-        value: function(plane) { return format_distance_brief(plane.sitedist, DisplayUnits); },
+        value: function(plane) { return plane.isSatellite ? formatSatelliteOrbit(plane.altitude) : format_distance_brief(plane.sitedist, DisplayUnits); },
         align: 'right',
         header: function () { return (pTracks ? 'Max. ' : '') + 'Dist.' + NBSP + '(' + get_unit_label("distance", DisplayUnits) + ')';},
     };
@@ -4820,7 +5305,7 @@ function refreshFeatures() {
 				
 	            // Emergency row flash — mirrors the #E button's alert logic
 	            const isRowEmergency =
-	                ["7500", "7600", "7700"].includes(String(plane.squawk)) ||
+	                ["7400", "7500", "7600", "7700"].includes(String(plane.squawk)) ||
 	                plane.isShipEmergency === true;
 
 	            if (isRowEmergency) {
@@ -5535,6 +6020,60 @@ function toggleAir() {
     if (typeof refreshFilter === 'function') refreshFilter();
     if (typeof active === 'function') active();
     if (typeof fetchData === 'function') fetchData({force: true});
+}
+
+function toggleSatellite() {
+    window.ShowSatellites = !window.ShowSatellites;
+    buttonActive('#Sa', window.ShowSatellites);
+    loStore['ShowSatellites'] = window.ShowSatellites ? 'true' : 'false';
+
+    if (typeof refreshFilter === 'function') refreshFilter();
+    if (typeof active === 'function') active();
+    if (typeof fetchData === 'function') fetchData({force: true});
+}
+
+// --- About box -------------------------------------------------------
+// The icon key is generated straight from the same shape definitions
+// markers.js uses to draw the live map (via svgShapeToSVG), rather than
+// cropped from sprites.png - that keeps it pixel-identical to what's
+// actually on the map and immune to sprite-sheet layout changes.
+let aboutIconsRendered = false;
+
+function renderAboutIcons() {
+    const strokeColor = (typeof OutlineADSBColor !== 'undefined') ? OutlineADSBColor : '#000000';
+    const strokeWidth = outlineWidth * 0.75;
+
+    const renderIcon = function(elementId, shapeName, hslColor, scale) {
+        const shape = shapes[shapeName];
+        const el = document.getElementById(elementId);
+        if (!shape || !el) return;
+        const fillColor = 'hsl(' + hslColor[0] + ',' + hslColor[1] + '%,' + hslColor[2] + '%)';
+        el.innerHTML = svgShapeToSVG(shape, fillColor, strokeColor, strokeWidth, scale || 1.6);
+    };
+
+    // Aircraft: default light-aircraft silhouette; fill is illustrative of
+    // the altitude-based colouring used on the map, not a fixed colour.
+    renderIcon('about_icon_aircraft', 'cessna', [60, 100, 50], 1.3);
+
+    // Marine: ground station (base/coast/AtoN share this one shape),
+    // static vessel, moving vessel - colours are just two representative
+    // vessel-type examples (see getAisVesselColor), not fixed meanings.
+    renderIcon('about_icon_ais_station', 'ais_station', [220, 60, 55]);
+    renderIcon('about_icon_ais_vessel_static', 'ais_vessel_static', [150, 100, 50]);
+    renderIcon('about_icon_ais_vessel', 'ais_vessel', [240, 100, 50]);
+
+    // Space: satellite / station / military, using the actual SAT_CATEGORIES colours.
+    renderIcon('about_icon_satellite', 'satellite', SAT_CATEGORIES.visual.color);
+    renderIcon('about_icon_sat_station', 'sat_station', SAT_CATEGORIES.stations.color);
+    renderIcon('about_icon_sat_military', 'sat_military', SAT_CATEGORIES.military.color);
+}
+
+function showAbout() {
+    if (!aboutIconsRendered) {
+        renderAboutIcons();
+        aboutIconsRendered = true;
+    }
+    jQuery('#about_infoblock').toggle();
 }
 
 function toggleMilitary() {
@@ -6504,20 +7043,25 @@ function updateVisible() {
     vesselsShown = 0;
     aircraftTotal = 0;
     vesselsTotal = 0;
+    satellitesShown = 0;
+    satellitesTotal = 0;
 
     for (let i in g.planesOrdered) {
         const plane = g.planesOrdered[i];
 
-        const isShip = (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
+        const isSat = !!plane.isSatellite;
+        const isShip = !isSat && (plane.dataSource === 'ais' || plane.type === 'ship' || plane.ship || (plane.desc && plane.desc.includes('Ship')));
 
         plane.updateVisible();
 
-        if (!customCheckPlaneFilter(plane, isShip)) {
+        if (!customCheckPlaneFilter(plane, isShip, isSat)) {
             plane.visible = false;
         }
 
         if (plane.visible) {
-            if (isShip) {
+            if (isSat) {
+                satellitesTotal++;
+            } else if (isShip) {
                 vesselsTotal++;
             } else {
                 aircraftTotal++;
@@ -6525,7 +7069,9 @@ function updateVisible() {
         }
 
         const onScreen = plane.visible && plane.inView;
-        if (isShip) {
+        if (isSat) {
+            satellitesShown += onScreen;
+        } else if (isShip) {
             vesselsShown += onScreen;
         } else {
             aircraftShown += onScreen;
@@ -6536,16 +7082,18 @@ function updateVisible() {
     jQuery('#vessel_count_label').text(tableInView ? "On Screen Vessels:" : "Total Vessels:");
     jQuery('#dump1090_total_ac').updateText(tableInView ? aircraftShown : aircraftTotal);
     jQuery('#dump1090_total_vessels').updateText(tableInView ? vesselsShown : vesselsTotal);
+    jQuery('#satellite_count_label').text(tableInView ? "On Screen Satellites:" : "Total Satellites:");
+    jQuery('#dump1090_total_satellites').updateText(tableInView ? satellitesShown : satellitesTotal);
 
 	updateEmergencyButtonAlert();
     checkScale();
 }
 
-function customCheckPlaneFilter(plane, isShip) {
+function customCheckPlaneFilter(plane, isShip, isSat) {
 
     // A vehicle is an emergency if it has an aircraft emergency squawk OR an emergency ship status
     const isEmergency = 
-        ["7500", "7600", "7700"].includes(String(plane.squawk)) || 
+        ["7400", "7500", "7600", "7700"].includes(String(plane.squawk)) || 
         plane.isShipEmergency === true;
 
     if (onlyEmergency && !isEmergency) {
@@ -6556,6 +7104,10 @@ function customCheckPlaneFilter(plane, isShip) {
 
     if (onlyMilitary && !isMilitary) {
         return false;
+    }
+
+    if (isSat) {
+        return !!window.ShowSatellites;
     }
 
     if (isShip && !window.ShowMarine) {
@@ -6623,10 +7175,30 @@ function onPointermove(evt) {
     highlight(evt);
 }
 
+// Satellites are drawn into their own dedicated SatelliteIconFeatures layer (see
+// satelliteIconLayer), never into PlaneIconFeatures/webglFeatures, so hit testing
+// has to check all three sources and take the nearer hit.
+function getClosestPlaneFeature(coords) {
+    let best = null;
+    let bestDist = Infinity;
+    const sources = webgl ? [webglFeatures, PlaneIconFeatures, SatelliteIconFeatures] : [PlaneIconFeatures, SatelliteIconFeatures];
+    for (const src of sources) {
+        if (!src) continue;
+        const f = src.getClosestFeatureToCoordinate(coords);
+        if (!f || !f.getGeometry()) continue;
+        const c = f.getGeometry().getCoordinates();
+        const d = (c[0] - coords[0]) ** 2 + (c[1] - coords[1]) ** 2;
+        if (d < bestDist) {
+            bestDist = d;
+            best = f;
+        }
+    }
+    return best;
+}
+
 function highlight(evt) {
     let evtCoords = evt.map.getCoordinateFromPixel(evt.pixel);
-    let source = webgl ? webglFeatures : PlaneIconFeatures;
-    let feature = source.getClosestFeatureToCoordinate(evtCoords);
+    let feature = getClosestPlaneFeature(evtCoords);
     if (feature) {
         let fPixel = evt.map.getPixelFromCoordinate(feature.getGeometry().getCoordinates());
         let a = fPixel[0] - evt.pixel[0];
@@ -7610,7 +8182,13 @@ let geoFindInterval = null;
 function geoFindMe() {
     //console.trace();
 
-    g.geoFindDefer = jQuery.Deferred();
+    // Captured locally so success()/error() below always settle *this*
+    // call's own deferred, even if a later geoFindMe() call (e.g. clicking
+    // "Home" again before this one's geolocation request has settled)
+    // reassigns g.geoFindDefer to a new one in the meantime - otherwise the
+    // first call's eventual callback would incorrectly resolve/reject the
+    // second call's deferred instead of its own.
+    const thisDefer = g.geoFindDefer = jQuery.Deferred();
     function success(position) {
         SiteLat = DefaultCenterLat = position.coords.latitude;
         SiteLon = DefaultCenterLon = position.coords.longitude;
@@ -7622,7 +8200,7 @@ function geoFindMe() {
         initSitePos();
         console.log('Location from browser: '+ SiteLat +', ' + SiteLon);
 
-        g.geoFindDefer.resolve();
+        thisDefer.resolve();
 
 
         {
@@ -7645,29 +8223,39 @@ function geoFindMe() {
     function error() {
         console.log("Unable to query location.");
         initSitePos();
-        g.geoFindDefer.reject();
+        thisDefer.reject();
     }
 
     if (!geoFindEnabled()) {
         //console.log('Geolocation is not enabled');
         initSitePos();
-        g.geoFindDefer.reject();
+        thisDefer.reject();
     } else if (!navigator.geolocation) {
         console.log('Geolocation is not supported by your browser');
         initSitePos();
-        g.geoFindDefer.reject();
+        thisDefer.reject();
     } else {
         // change SitePos on location change
         console.log('Locating…');
         const geoposOptions = {
             enableHighAccuracy: false,
-            timeout: Infinity,
+            // Was Infinity: if the browser never calls back (permission
+            // prompt left pending, no fix indoors, tab backgrounded, a flaky
+            // location provider), neither success() nor error() ever fires,
+            // g.geoFindDefer never settles, and anything waiting on it (e.g.
+            // resetMap()'s "Home" button) hangs forever with no feedback and
+            // no way to recover short of reloading. A real timeout means it
+            // always resolves one way or the other. 10s matches what a
+          // user clicking a button actually expects to wait, rather than the
+            // 15-minute value used for the unrelated periodic background
+            // refresh a little further down.
+            timeout: 10 * 1000,
             maximumAge: 300 * 1000,
         };
         navigator.geolocation.getCurrentPosition(success, error, geoposOptions);
     }
 
-    return g.geoFindDefer;
+    return thisDefer;
 }
 
 let initSitePosFirstRun = true;

@@ -709,6 +709,54 @@ let shapes = {
         path: 'M 2.7004841,35.4 C 2.3957197,34.805237 2.3346108,34.071291 2.3487212,33.492639 2.3628316,32.913987 2.4133442,32.511354 2.7,32 9.5741879,27.222774 18.4208,24.315376 32,24.357064 45.579201,24.281104 54.425812,27.222774 61.3,32 c 0.276334,0.514345 0.356292,0.854368 0.375811,1.434709 C 61.69533,34.01505 61.609571,34.773946 61.3,35.4 51.576472,38.439657 40.678687,39.277517 32,39.189844 21.874148,39.356757 12.026431,38.677104 2.7004841,35.4 Z',
         accent: 'm 25.330646,24.634523 c -0.449188,4.692891 -0.341936,9.773843 0.03756,14.466734 M 17.376491,25.852595 c -0.815196,4.431676 -0.563898,8.706157 -0.01788,12.689083 M 10.149939,28.044695 c -0.6932861,3.230546 -0.7067571,6.748219 0.03192,9.585637 M 39.107311,24.631007 c 0.449188,4.692891 0.396257,9.757568 0.01676,14.450459 M 47.08978,25.710067 c 0.815196,4.431676 0.618698,8.91815 0.07268,12.901076 M 54.371132,28.11416 c 0.693286,3.230546 0.706757,6.559392 -0.03192,9.39681',
     },
+    // AIS icon set: colours are vessel/target-type specific, so a single
+    // shape per category is all that's needed - the fillColor is applied
+    // the same way as for aircraft.
+    'ais_vessel': {
+        // vessel underway (moving): heading arrow, rotates with course
+        w: 14,
+        h: 14,
+        viewBox: '0 0 16 16',
+        strokeScale: 1.4,
+        path: 'M 8 1 L 14.4 15 L 8 11.5 L 1.6 15 Z',
+    },
+    'ais_vessel_static': {
+        // vessel not underway (moored/anchored): non-directional, so no
+        // point rotating it with course
+        w: 14,
+        h: 14,
+        noRotate: true,
+        viewBox: '0 0 16 16',
+        strokeScale: 1.4,
+        path: 'M 8 1.5 A 6.5 6.5 0 1 1 7.99 1.5 Z',
+    },
+    'ais_station': {
+        // AIS base/ground station: fixed, non-directional
+        w: 14,
+        h: 14,
+        noRotate: true,
+        viewBox: '0 0 16 16',
+        strokeScale: 1.4,
+        path: 'M 8 1 L 15 8 L 8 15 L 1 8 Z M 8 6.8 A 1.2 1.2 0 1 0 8 9.2 A 1.2 1.2 0 1 0 8 6.8 Z',
+    },
+    'ais_aircraft': {
+        // SAR aircraft transmitting AIS
+        w: 30,
+        h: 30,
+        viewBox: '-3 -3 30 30',
+        strokeScale: 1,
+        noAspect: true,
+        path: 'M12.17 17.81l2.77.46.01.98-3.03.14-3.14-.18.02-.97 2.77-.43-.61-4.52-7.18-1.23s-.4-1.27.02-1.88l5.72-.25 1.39-.9.43-2.7-1.41-.01s-.15-.1 0-.16l1.73-.03s.34-1.08.67 0l1.72.04s.15.07 0 .15h-1.42l.36 2.72 1.37.95 5.82.27s.4.16.02 1.9l-7.33 1.14z',
+    },
+    'ais_helicopter': {
+        // SAR helicopter transmitting AIS
+        w: 29,
+        h: 29,
+        viewBox: '-13 -13 90 90',
+        strokeScale: 3.0,
+        path: 'm 24.698,60.712 c 0,0 -0.450,2.134 -0.861,2.142 -0.561,0.011 -0.480,-3.836 -0.593,-5.761 -0.064,-1.098 1.381,-1.192 1.481,-0.042 l 5.464,0.007 -0.068,-9.482 -0.104,-1.108 c -2.410,-2.131 -3.028,-3.449 -3.152,-7.083 l -12.460,13.179 c -0.773,0.813 -2.977,0.599 -3.483,-0.428 L 26.920,35.416 26.866,29.159 11.471,14.513 c -0.813,-0.773 -0.599,-2.977 0.428,-3.483 l 14.971,14.428 0.150,-5.614 c -0.042,-1.324 1.075,-4.784 3.391,-5.633 0.686,-0.251 2.131,-0.293 3.033,0.008 2.349,0.783 3.433,4.309 3.391,5.633 l 0.073,4.400 12.573,-12.763 c 0.779,-0.807 2.977,-0.599 3.483,0.428 L 37.054,28.325 37.027,35.027 52.411,49.365 c 0.813,0.773 0.599,2.977 -0.428,3.483 L 36.992,38.359 c -0.124,3.634 -0.742,5.987 -3.152,8.118 l -0.104,1.108 -0.068,9.482 5.321,-0.068 c 0.101,-1.150 1.546,-1.057 1.481,0.042 -0.113,1.925 -0.032,5.772 -0.593,5.761 -0.412,-0.008 -0.861,-2.142 -0.861,-2.142 l -5.387,-0.011 0.085,9.377 -1.094,2.059 -1.386,-0.018 -1.093,-2.049 0.085,-9.377 z',
+    },
+
     // ty pimlie for the e390 icon
     'e390': {
         w: 32,
@@ -717,6 +765,43 @@ let shapes = {
         strokeScale: 4,
         path: 'M82.245.552C76.577.258 70.617 29.796 71.583 37.077c-1.005 2.09-1.497 4.03-2.178 6.313l-9.7 5.428.174-.677c1.94-.001 3.26-12.26 2.558-14.59-.124-.3-.118-1.086-.995-1.171H53.79c-.822.087-.942.82-1.08 1.193-1.047 2.612-.37 13.628 1.473 14.575.205 1.793 1.242-.228 1.206 3.08l-48.252 27c-1.22.519-5.173 6.398-4.699 9.612l65.35-18.075c.678 6.023 2.061 10.756 3.762 16.529.011 0 .04-.021.04-.005V104.1c-.356 10.104 1.165 18.468 6.18 30.667l-19.562 13.294c-1.52 1-1.89 4.028-1.49 6.287l24.391-5.857c.201 2.723.464 5.673 1.122 8.162.675-3.067.806-5.317 1.083-8.19l24.204 5.888c.13-2.126-.08-4.896-1.618-6.23L86.876 134.87c4.615-12.33 5.975-20.668 6.068-30.826L93 86.17c1.848-6.117 2.981-10.824 3.724-16.408l65.348 18.075c-.053-3.455-2.224-7.301-4.71-9.617l-48.244-26.994c-.19-3.07 1.082-.493 1.161-3.084 1.673-.836 2.55-11.042 1.44-14.57-.11-.634-.474-1.016-.994-1.193h-7.653c-.474.037-.803.253-1.039 1.196-.654 2.808.135 13.31 2.631 14.565l.193.694-9.7-5.428c-.632-2.071-1.28-4.32-2.132-6.237-.018-8.233-4.47-36.65-10.772-36.611z'
     },
+	'satellite': {
+        w: 18,
+        h: 18,
+        viewBox: '0 0 64 64',
+        strokeScale: 2,
+        // Used for the 'visual' category, and reused (color-only differentiation)
+        // for every category that doesn't have its own bespoke shape below.
+        // Rotates with ground track, same as aircraft - the body/dish points "up"
+        // (north) at rotation 0, same convention as every other shape in this table.
+        path: "M26 23h12v18H26z M21.5 30.5h4.5v3h-4.5z M38 30.5h4.5v3h-4.5z M2 24h19.5v16H2z M42.5 24h19.5v16H42.5z M31 13h2v10h-2z M32 7m-5.5 0a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z",
+        accent: "M8.5 24v16 M15 24v16 M2 32h19.5 M49 24v16 M55.5 24v16 M42.5 32h19.5",
+        accentMult: 0.5,
+ 	},
+	'sat_station': {
+        w: 22,
+        h: 22,
+        viewBox: '0 0 64 64',
+        strokeScale: 2,
+        // ISS-style crewed platform: wide truss with paired solar arrays at each
+        // end and a small module hub in the middle. No dish/antenna, since the
+        // silhouette itself (much wider than 'satellite') is the distinguishing cue.
+        path: "M24 24h16v16H24z M18 30h6v4h-6z M40 30h6v4h-6z M2 6h16v52H2z M46 6h16v52H46z M30 1h4v6h-4z",
+        accent: "M10 6v52 M2 20h16 M2 34h16 M2 48h16 M54 6v52 M46 20h16 M46 34h16 M46 48h16",
+        accentMult: 0.5,
+ 	},
+	'sat_military': {
+        w: 16,
+        h: 16,
+        viewBox: '0 0 64 64',
+        strokeScale: 2,
+        // Angular hexagonal bus with a pointed nose (nose = direction of travel,
+        // same "up at rotation 0" convention) and swept side fins, deliberately
+        // sharper than the rounded civilian shapes.
+        path: "M30 0h4v8h-4z M32 8 L44 22 L44 44 L32 58 L20 44 L20 22 Z M20 40 L6 50 L20 48 Z M44 40 L58 50 L44 48 Z",
+        accent: "M20 32h24 M32 27m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+        accentMult: 0.6,
+ 	},
 }
 
 {
@@ -842,6 +927,7 @@ let TypeDesignatorIcons = {
     'HA4T': ['jet_swept', 0.92], // 18t
     'FA7X': ['jet_swept', 0.96], // 29t
     'FA8X': ['jet_swept', 0.96], // 33t
+    'FA6X': ['jet_swept', 0.96], // 35t
     'GLF2': ['jet_swept', 0.96], // 29t
     'GLF3': ['jet_swept', 0.96], // 31t
     'GLF4': ['jet_swept', 0.96], // 34t
@@ -1247,12 +1333,151 @@ let CategoryIcons = {
     'C3' : ['ground_tower', 1],
 };
 
-function getBaseMarker(category, typeDesignator, typeDescription, wtc, addrtype, altitude, eastbound) {
+// Synthetic ICAO addresses in the unallocated F00000-FFFFFE block are used by the
+// TLE/SBS satellite feeder, so anything in that range is a satellite, not an aircraft.
+function isSatelliteHex(hex) {
+    if (typeof hex !== 'string' || !/^[0-9a-fA-F]{6}$/.test(hex))
+        return false;
+    const hexNum = parseInt(hex, 16);
+    return (hexNum >= 0xF00000 && hexNum <= 0xFFFFFE);
+}
 
-    //return ['f5_tiger', 1];
+// Must mirror CATEGORY_BANDS in the feeder's app.js exactly. SBS/BaseStation has
+// no field for an arbitrary category tag, so the band (hex byte F0-F7) is the
+// only channel carrying it across the wire - see the comment above app.js's
+// CATEGORY_BANDS for the full explanation.
+// MarineTraffic-style color-by-vessel-type scheme for AIS targets, keyed off
+// the raw AIS ship type (0-99, see shipTypeDescriptions in script.js). Plugs
+// into getMarkerColor() the same way SAT_CATEGORIES overrides the altitude
+// gradient for satellites - a fixed category color instead of one derived
+// from altitude, which for AIS targets is always 0 and would otherwise give
+// every vessel the same flat hue.
+// Keyed on the short type CODE (this.icaoType, set from ac.t in processBoat -
+// see script.js), not the raw numeric ship_type. ship_type is only ever set
+// when the vessel actually broadcasts an AIS shiptype field, which stations
+// (base/coast/AtoN) and not-yet-classified vessels never do - they're
+// identified via mmsi_type instead - so keying on ship_type left those four
+// categories indistinguishable (all null -> the same grey). icaoType is set
+// in every branch of that if/else chain, so it's always populated.
+function getAisVesselColor(plane) {
+    const t = plane.icaoType;
+
+    switch (t) {
+        // Fixed shore/marker infrastructure - previously all fell through to
+        // grey (ship_type is never set for these). Distinct, muted tones.
+        case "BASE": return [220, 60, 55]; // Land Base Station
+        case "COAS": return [170, 60, 50]; // Coast Station
+        case "ANAV": return [45,  90, 55]; // Aids to Navigation
+
+        // Not yet classified (ship_type 0, or no ship_type and no mmsi_type
+        // match) - deliberately grey, matching the old "unknown/null" default.
+        case "UNKN": return [0, 0, 50];
+
+        case "RESE": return [200, 86, 50]; // Reserved (1-19, 38-39)
+        case "WING": return [200, 86, 50]; // Wing-in-ground (20-28)
+        case "ASAR": return [0,  81, 45];  // SAR Aircraft (29)
+        case "FISH": return [300, 100, 50]; // Fishing (30)
+        case "TOW":  return [0,  59, 41];  // Towing (31-32)
+        case "DRED": return [200, 86, 50]; // Dredging (33)
+        case "DIVE": return [200, 86, 50]; // Diving (34)
+        case "MIL":  return [0,   0, 30];  // Military (35)
+        case "SAIL": return [200, 86, 50]; // Sailing (36)
+        case "PLEA": return [200, 86, 50]; // Pleasure Craft (37)
+        case "HSPD": return [60, 100, 50]; // High Speed Craft (40-49)
+        case "PILO": return [0,  59, 41];  // Pilot (50)
+        case "SAR":  return [0,  59, 41];  // Search & Rescue vessel (51)
+        case "TUG":  return [0,  59, 41];  // Tug (52)
+        case "TEND": return [0,  59, 41];  // Port Tender (53)
+        case "POLL": return [0,  59, 41];  // Anti-pollution (54)
+        case "LAW":  return [0,  59, 41];  // Law Enforcement (55)
+        case "LOC":  return [0,  59, 41];  // Local vessel (56-57)
+        case "MED":  return [0,  59, 41];  // Medical (58)
+        case "NCOM": return [0,  59, 41];  // Noncombatant (59)
+        case "PASS": return [240, 100, 50]; // Passenger (60-69)
+        case "CARG": return [150, 100, 50]; // Cargo (70-79)
+        case "TANK": return [0,  100, 50]; // Tanker (80-89)
+        case "OTHE": return [200, 86, 50]; // Other (90-99)
+
+        default:     return [0, 0, 50];    // anything unrecognised: grey
+    }
+}
+
+
+const SAT_CATEGORIES = {
+    stations:   { band: 0x00, shape: 'sat_station',  label: 'Space Station',        short: 'STATION',  color: [45,  90, 55] },
+    visual:     { band: 0x01, shape: 'satellite',     label: 'Visual / Bright',      short: 'VISUAL',   color: [195, 85, 65] },
+    military:   { band: 0x02, shape: 'sat_military',  label: 'Military',             short: 'MILITARY', color: [15,  75, 45] },
+    weather:    { band: 0x03, shape: 'satellite',     label: 'Weather / Earth Obs',  short: 'WEATHER',  color: [165, 60, 45] },
+    navigation: { band: 0x04, shape: 'satellite',     label: 'Navigation',           short: 'NAV',      color: [270, 55, 55] },
+    comms:      { band: 0x05, shape: 'satellite',     label: 'Communications',       short: 'COMMS',    color: [320, 60, 55] },
+    science:    { band: 0x06, shape: 'satellite',     label: 'Scientific',           short: 'SCIENCE',  color: [95,  55, 50] },
+    other:      { band: 0x07, shape: 'satellite',     label: 'Other Satellite',      short: 'SAT',      color: [210, 15, 55] },
+    recent:     { band: 0x08, shape: 'satellite',     label: 'Recently Launched',    short: 'NEW',      color: [130, 80, 55] },
+};
+
+const SAT_BAND_TO_CATEGORY = Object.fromEntries(
+    Object.entries(SAT_CATEGORIES).map(([key, def]) => [def.band, key])
+);
+
+// Decodes the category out of a satellite's synthetic hex. Returns null for
+// anything that isn't a satellite hex at all (use isSatelliteHex to check first
+// if that distinction matters to the caller).
+function getSatelliteCategory(hex) {
+    if (!isSatelliteHex(hex)) return null;
+    const band = (parseInt(hex, 16) >> 16) & 0xFF; // 0xF0-0xF7
+    return SAT_BAND_TO_CATEGORY[band - 0xF0] || 'other';
+}
+
+// The low 16 bits of a satellite's synthetic hex are `noradId % 0x10000` (see
+// app.js's buildHexId). For the overwhelming majority of catalogued objects -
+// anything with a NORAD ID under 65536, which covers essentially every named/
+// notable satellite - that's a lossless recovery of the exact catalog number,
+// not an approximation. Only very recently launched, high-numbered objects
+// (post-2024-ish) could wrap and come back wrong; there's no way to detect
+// that case from the hex alone, so callers should treat a false match as
+// simply "no match" rather than trust it blindly for those edge cases.
+function getSatelliteNoradId(hex) {
+    if (!isSatelliteHex(hex)) return null;
+    return parseInt(hex, 16) & 0xFFFF;
+}
+
+function getBaseMarker(category, typeDesignator, typeDescription, wtc, addrtype, altitude, eastbound, hex, speed) {
+
+    // Satellite: detected by the synthetic hex block the SBS feeder allocates from.
+    // The category (encoded in the hex band) picks which of the satellite shapes to use.
+    if (isSatelliteHex(hex)) {
+        const cat = getSatelliteCategory(hex);
+        const def = SAT_CATEGORIES[cat] || SAT_CATEGORIES.other;
+        return [def.shape, 1];
+    }
+
+    // Fallback: an explicit SAT type designator (category is deliberately NOT checked
+    // here - A7 is the rotorcraft category and would turn every helicopter into a satellite)
+    if (typeDesignator === 'SAT') {
+        return ['satellite', 1];
+    }
 
     if (addrtype == 'ais') {
-        return ['ground_square', 0.001];
+        // Fixed shore-based infrastructure (base/coast stations, AtoN buoys etc.):
+        // these never move, so there's no heading to show - "ground station" icon.
+        if (typeDescription == 'Land Base Station' || typeDescription == 'Coast Station' || typeDescription == 'Aids to Navigation') {
+            return ['ais_station', 0.8];
+        }
+
+        // Airborne SAR asset (AIS ship type 29, "Air Search & Rescue"). Standard
+        // AIS has no field distinguishing a fixed-wing aircraft from a helicopter,
+        // so both currently render with the same icon until a reliable signal
+        // (e.g. a real altitude/speed-based heuristic) is worth adding.
+        if (typeDescription == 'Air Search & Rescue') {
+            return ['ais_aircraft', 0.8];
+        }
+
+        // Surface vessel: moving vs static, using the same 0.5kt threshold
+        // already used elsewhere for the AIS-catcher icon variant.
+        if (speed != null && speed > 0.5) {
+            return ['ais_vessel', 0.8];
+        }
+        return ['ais_vessel_static', 0.8];
     }
 
     if (halloween) {

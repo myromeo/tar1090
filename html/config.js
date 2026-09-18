@@ -22,7 +22,7 @@
 // degrees.
 
 // The google maps zoom level, 0 - 16, lower is further out
-//DefaultZoomLvl   = 7;
+DefaultZoomLvl   = 9;
 
 // specify lat lon that the 'auto-select plane' feature will choose the closest plane to
 // autoselectCoords = [42, 21];
@@ -31,7 +31,7 @@
 //SiteName    = "My Radar Site"; // tooltip of the marker
 
 // Update GPS location (keep map centered on GPS location)
-//updateLocation = false;
+updateLocation = true;
 
 // Color controls for the range outline
 //range_outline_color = '#0000DD';
@@ -52,7 +52,7 @@
 // actual_range_show = true;
 
 // which map is displayed to new visitors
-// MapType_tar1090 = "osm";
+MapType_tar1090 = "OpenFreeMapBright";
 //
 // valid values for the above setting:
 // osm
@@ -104,15 +104,15 @@
 // (marker == aircraft icon)
 
 // aircraft icon opacity (normal and while the user is moving the map)
-// webglIconOpacity = 1.0;
-// webglIconMapMoveOpacity = 1.0;
+webglIconOpacity = 1.0;
+webglIconMapMoveOpacity = 0.25;
 
 // if more than by default 2000 aircraft are on the screen, reduce icon opacity when moving the screen:
 // webglIconMapMoveOpacityCrowded = 0.25;
 // webglIconMapMoveOpacityCrowdedThreshold = 2000;
 
 // different marker size depending on zoom lvl
-// markerZoomDivide = 8.5;
+// markerZoomDivide = 7.0;
 // marker size when the zoom level is less than markerZoomDivide
 // markerSmall = 1;
 // marker size when the zoom level is more than markerZoomDivide
@@ -204,10 +204,10 @@ ColorByAlt = {
 //SiteCirclesLineDash = [5, 5]; // null - solid line, [5, 5] - dashed line with 5 pixel lines and spaces in between
 
 // Controls page title, righthand pane when nothing is selected
-//PageName = "tar1090";
+PageName = "mlat.uk Map";
 
 // Show country flags by ICAO addresses?
-//ShowFlags = true;
+ShowFlags = true;
 
 // Provide a Bing Maps API key here to enable the Bing imagery layer.
 // You can obtain a free key (with usage limits) at
@@ -271,7 +271,7 @@ MapboxAPIKey = null;
 // planespottersLinks = false;
 
 // show links to various registration websites (not all countries)
-// registrationLinks = true;
+registrationLinks = true;
 
 // Filter implausible positions (required speed > Mach 3.5)
 // valid values: true, false, "onlyMLAT" ("" required)
@@ -292,8 +292,8 @@ MapboxAPIKey = null;
 //enableMouseover = true;
 
 // enable/disable temporary aircraft trails
-//tempTrails = false;
-//tempTrailsTimeout = 90;
+// tempTrails = true;
+// tempTrailsTimeout = 60;
 //squareMania = false;
 
 // Columns that have a // in front of them are shown.
@@ -357,7 +357,7 @@ routeApiUrl = "https://adsb.im/api/0/routeset";
 // windLabelsSlim = false;
 // showLabelUnits = true;
 //
-// wideInfoBlock = false;
+wideInfoBlock = true;
 // baseInfoBlockWidth = 200;
 
 //enableDWD = true;
@@ -367,12 +367,12 @@ routeApiUrl = "https://adsb.im/api/0/routeset";
 //
 //hideButtons = false;
 //
-//askLocation = false;  // requires https for geolocation (browsers require it)
+askLocation = true;  // requires https for geolocation (browsers require it)
 //
 //filterMaxRange = 50; // don't show aircraft further than 50 nmi from the receiver
 //
 //
-//darkModeDefault = true; // turn on dark mode by default (change in browser possible)
+darkModeDefault = true; // turn on dark mode by default (change in browser possible)
 //
 //
 //jaeroTimeout = 35 * 60; // in seconds
@@ -421,7 +421,6 @@ tableColors = {
     },
 };
 */
-
 
 // disableGeoLocation = false;
 

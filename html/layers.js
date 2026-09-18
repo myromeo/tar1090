@@ -925,22 +925,9 @@ function createBaseLayers() {
 			world.push(g.aisTrackLayer);
 			// end track
 
-		    const aiscatcher_mapping = {
-		        0: { size: [20, 20], offset: [120, 20] },
-		        1: { size: [20, 20], offset: [120, 20] },
-		        2: { size: [20, 20], offset: [0, 20] },
-		        3: { size: [20, 20], offset: [20, 20] },
-		        4: { size: [20, 20], offset: [40, 20] },
-		        5: { size: [20, 20], offset: [60, 20] },
-		        6: { size: [20, 20], offset: [80, 20] },
-		        7: { size: [20, 20], offset: [100, 20] },
-		        8: { size: [20, 20], offset: [140, 20] },
-		        9: { size: [25, 25], offset: [0, 60] },
-		        10: { size: [25, 25], offset: [0, 85] },
-		        11: { size: [20, 20], offset: [20, 40] },
-		        12: { size: [20, 20], offset: [0, 40] },
-		        13: { size: [20, 20], offset: [40, 40] }
-		    };
+		    // aiscatcher_mapping (icon index -> offset/size into aiscatcher_server's
+		    // own icons.png) removed: vessel icons no longer come from that sprite,
+		    // see the style() function below.
 
 			const emergencyShipStatuses = new Set([2, 14]);
 			const interestingShipTypes = new Set(["ASAR", "MIL", "SAR", "LAW"]);
@@ -1002,17 +989,26 @@ function createBaseLayers() {
 
 		    g.aiscatcherLayer = new ol.layer.Vector({
 		        type: 'overlay',
-		        title: "AIS Catcher",
 		        name: "aiscatcher",
 		        zIndex: 100,
 		        source: g.aiscatcher_source,
+		        // No title - ol-layerswitcher only lists layers that have a
+		        // title property (there's no separate opt-out flag); visibility
+		        // is controlled from the main UI (the marine/ship toggle button,
+		        // via window.ShowMarine - see script.js), not the layer switcher.
+		        // Explicitly on by default (matches window.ShowMarine's own
+		        // default) now that there's no layer switcher checkbox for it.
+		        visible: true,
+				// Vessel/station icons are now drawn through the WebGL PlaneObject
+				// pipeline (see markers.js getBaseMarker + the ais_* shapes), the
+				// same as aircraft. This layer keeps only the to-scale hull outline
+				// (drawn from AIS dimension fields, zoom >= 13) - a feature the
+				// WebGL point-icon pipeline has no equivalent for.
 				style: feature => {
 				            const props = feature.getProperties();
-            
-				            // Extract using OpenLayers direct feature getter
-							const shipclass = feature.get('shipclass') || props.shipclass || props.ship_type || props.type;
 
-							// shipclass is an icon index; shiptype is the actual AIS vessel type.
+							// shiptype is the actual AIS vessel type (still needed for
+							// the "only military" filter below).
 							const rawShipType = feature.get('shiptype') ?? props.shiptype;
 							const shipType = Number(rawShipType);
             
@@ -1053,24 +1049,6 @@ function createBaseLayers() {
 
 				            const styles = [];
 
-				            // Marker Configuration (Duplicate declarations removed safely here)
-				            const cog = feature.get('cog');
-				            const rotation = (cog || 0) * Math.PI / 180;
-				            const speed = feature.get('speed');
-				            const ofs = aiscatcher_mapping[shipclass]?.offset || [0,0];
-				            const size = aiscatcher_mapping[shipclass]?.size || [20,20];
-				            let o = (speed && speed > 0.5) ? [ofs[0],0] : ofs;
-
-				            styles.push(new ol.style.Style({
-				                image: new ol.style.Icon({
-				                    src: aiscatcher_server + '/icons.png',
-				                    anchor: [0.5, 0.5],
-				                    rotation: rotation,
-				                    size: size,
-				                    offset: o
-				                })
-				            }));
-
 				            // Outline Configuration
 				            //if (OLMap.getView().getZoom() >= 13) {
 				            //    const coords = getShipOutline(feature);
@@ -1110,8 +1088,10 @@ function createBaseLayers() {
 
 		    world.push(g.aiscatcherLayer);
 
-			setTimeout(() => {
-			    if (typeof OLMap !== 'undefined') {
+			// OLMap is assigned later, in ol_map_init() - retry briefly instead of
+			// firing once, since a single fixed delay is unreliable on slower loads.
+			(function attachAiscatcherFadeListeners(attemptsLeft) {
+			    if (typeof OLMap !== 'undefined' && OLMap) {
 			        OLMap.on('movestart', function() {
 			            g.aiscatcherLayer.setOpacity(0.25);
 			        });
@@ -1119,10 +1099,12 @@ function createBaseLayers() {
 			        OLMap.on('moveend', function() {
 			            g.aiscatcherLayer.setOpacity(1.0);
 			        });
+			    } else if (attemptsLeft > 0) {
+			        setTimeout(() => attachAiscatcherFadeListeners(attemptsLeft - 1), 500);
 			    } else {
 			        console.error("AIS Catcher: OLMap not found, cannot attach fade listeners.");
 			    }
-			}, 1000); 
+			})(20); // ~10s total before giving up
 		}
 //end
     layers.push(new ol.layer.Group({

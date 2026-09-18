@@ -15,6 +15,19 @@ function PlaneObject(icao) {
 	this.numHex = parseInt(icao.replace('~', '1'), 16);
 	this.fakeHex = icao.startsWith('MMSI') || !Number.isFinite(this.numHex) || this.numHex > 16777215;
 
+	// Satellites arrive through the normal ADS-B feed with a synthetic hex in the
+	// F00000-FFFFFE block (see the TLE/SBS feeder). Flag them once, here.
+	this.isSatellite = (typeof isSatelliteHex === 'function') ? isSatelliteHex(icao) : false;
+
+	// Both of these are pure functions of the (fixed, never-changing) hex, so
+	// decoding them once here - rather than on every getMarkerColor() call, which
+	// runs on every icon redraw for every visible satellite - avoids needlessly
+	// re-parsing the same hex string many times a second.
+	this.satCategory = this.isSatellite && typeof getSatelliteCategory === 'function'
+		? getSatelliteCategory(icao) : null;
+	this.satNoradId = this.isSatellite && typeof getSatelliteNoradId === 'function'
+		? getSatelliteNoradId(icao) : null;
+
     // most properties are set via this function so they can be reset easily
     this.setNull();
 
@@ -47,8 +60,11 @@ function PlaneObject(icao) {
     // request metadata
     this.checkForDB();
 
-    // military icao ranges
-    this.military = this.milRange();
+    // military icao ranges (aircraft) - satellites don't have real ICAO hex
+    // addresses, so this hex-block heuristic is meaningless for them; use
+    // their actual TLE-derived category instead, so the "U" (military-only)
+    // filter picks up military satellites too.
+    this.military = this.isSatellite ? (this.satCategory === 'military') : this.milRange();
 }
 
 PlaneObject.prototype.setNull = function() {
@@ -252,8 +268,14 @@ PlaneObject.prototype.isFiltered = function() {
         return true;
     }
 
-    // 2. If ShowAir is false, hide regular aircraft (anything that DOES NOT start with MMSI)
-    if (window.ShowAir === false && typeof this.icao === 'string' && !this.icao.startsWith('MMSI')) {
+    // 2. If ShowSatellites is false, hide anything in the synthetic satellite hex block
+    if (this.isSatellite) {
+        if (window.ShowSatellites === false) {
+            return true;
+        }
+    }
+    // 3. If ShowAir is false, hide regular aircraft (not vessels, not satellites)
+    else if (window.ShowAir === false && typeof this.icao === 'string' && !this.icao.startsWith('MMSI')) {
         return true;
     }
 
@@ -298,7 +320,7 @@ PlaneObject.prototype.isFiltered = function() {
         return true;
     }
 
-    if (!filterTracks && altFiltered(this.altitude))
+    if (!filterTracks && altFiltered(this.altitude, this.isSatellite))
         return true;
 
     if (PlaneFilter.sources && PlaneFilter.sources.length > 0 && !PlaneFilter.sources.includes(this.dataSource)) {
@@ -341,7 +363,8 @@ PlaneObject.prototype.isFiltered = function() {
 };
 
 
-function altFiltered(altitude) {
+function altFiltered(altitude, isSatellite) {
+    if (isSatellite) return false;
     if (PlaneFilter.minAltitude == null || PlaneFilter.maxAltitude == null)
         return false;
     if (altitude == null) {
@@ -395,6 +418,7 @@ PlaneObject.prototype.updateTrack = function(now, last, serverTrack, stale) {
 
     if (this.position[0] > 180 || this.position[0] < -180 || this.position[1] > 90 || this.position[1] < -90) {
         console.log("Ignoring Impossible Position for " + this.icao + ": " + this.position);
+        this.bad_position = this.position;
         return false;
     }
 
@@ -698,6 +722,13 @@ PlaneObject.prototype.getDataSourceNumber = function() {
     if (this.dataSource == "adsb")
         return 1;
 
+    // Its own slot - deliberately checked before the Other/AIS bucket below,
+    // which is exactly what satellites used to fall into (see the dataSource
+    // override in updateData()/updateTraceData() that produces "sat" in the
+    // first place).
+    if (this.dataSource == "sat")
+        return 9;
+
     if (this.dataSource == "other" || this.dataSource == "ais")
         return 7;
 
@@ -720,11 +751,31 @@ PlaneObject.prototype.getMarkerColor = function(options) {
 
     let h, s, l;
 
-    let colorArr = altitudeColor(alt);
+    // Satellites get a fixed, category-based color instead of the altitude
+    // gradient below: they all sit near the same SBS altitude cap regardless
+    // of category, so altitude-based color would make every satellite the
+    // same top-of-scale hue - useless for telling categories apart at a glance.
+    if (this.isSatellite && typeof SAT_CATEGORIES !== 'undefined') {
+        const def = SAT_CATEGORIES[this.satCategory] || SAT_CATEGORIES.other;
+        const color = def ? def.color : [210, 15, 55];
+        h = color[0];
+        s = color[1];
+        l = color[2];
+    } else if (this.dataSource == 'ais' && typeof getAisVesselColor !== 'undefined') {
+        // AIS targets are the same reason satellites get an override above:
+        // altitude is pinned to 0 for every vessel (see processBoat), which
+        // would otherwise flatten every vessel type to the same hue.
+        const color = getAisVesselColor(this);
+        h = color[0];
+        s = color[1];
+        l = color[2];
+    } else {
+        let colorArr = altitudeColor(alt);
 
-    h = colorArr[0];
-    s = colorArr[1];
-    l = colorArr[2];
+        h = colorArr[0];
+        s = colorArr[1];
+        l = colorArr[2];
+    }
 
     // If we have not seen a recent position update, change color
     if ((this.dataSource == 'adsc' && this.seen_pos > 20 * 60)
@@ -851,6 +902,12 @@ PlaneObject.prototype.setMarkerRgb = function() {
 
 PlaneObject.prototype.updateIcon = function() {
 
+    // Satellites used to be forced onto the vector-icon path here because the
+    // shipped sprite sheet had no cell for them - it does now (see markers.js:
+    // 'satellite', 'sat_station', 'sat_military'), so they follow the same
+    // webgl-vs-vector-icon rule as every other marker.
+    const useVectorIcon = !webgl;
+
     let fillColor = hslToRgb(this.getMarkerColor());
     let svgKey  = fillColor + '!' + this.shape.name + '!' + this.strokeWidth;
     let labelText = null;
@@ -885,12 +942,16 @@ PlaneObject.prototype.updateIcon = function() {
         const unknown = NBSP+NBSP+"?"+NBSP+NBSP;
 
         let alt;
-        if (labelsGeom) {
+        if (this.isSatellite) {
+            alt = this.altitude; // no baro/geom correction applies to orbital altitude
+        } else if (labelsGeom) {
             alt = adjust_geom_alt(this.alt_geom, this.position);
         } else {
             alt = adjust_baro_alt(this.altitude);
         }
-        let altString = (alt == null) ? unknown : format_altitude_brief(alt, this.vert_rate, DisplayUnits, showLabelUnits);
+        let altString = (alt == null) ? unknown : (this.isSatellite
+            ? formatSatelliteAltitude(alt)
+            : format_altitude_brief(alt, this.vert_rate, DisplayUnits, showLabelUnits));
         let speedString = (this.speed == null) ? (NBSP+'?'+NBSP) : format_speed_brief(this.speed, DisplayUnits, showLabelUnits).padStart(3, NBSP);
 
         labelText = "";
@@ -946,7 +1007,7 @@ PlaneObject.prototype.updateIcon = function() {
             labelText += callsign;
         }
     }
-    if (!webgl && (this.markerStyle == null || this.markerIcon == null || (this.markerSvgKey != svgKey))) {
+    if (useVectorIcon && (this.markerStyle == null || this.markerIcon == null || (this.markerSvgKey != svgKey))) {
         //console.log(this.icao + " new icon and style " + this.markerSvgKey + " -> " + svgKey);
 
         if (iconCache[svgKey] == undefined) {
@@ -980,10 +1041,10 @@ PlaneObject.prototype.updateIcon = function() {
 
         //iconCache[svgKey] = undefined; // disable caching for testing
     }
-    if (!this.markerIcon && !webgl)
+    if (!this.markerIcon && useVectorIcon)
         return;
 
-    let styleKey = (webgl ? '' : svgKey) + '!' + labelText + '!' + this.scale;
+    let styleKey = (useVectorIcon ? svgKey : '') + '!' + labelText + '!' + this.scale;
 
     if (this.styleKey != styleKey || !this.marker.getStyle()) {
         this.styleKey = styleKey;
@@ -1011,12 +1072,12 @@ PlaneObject.prototype.updateIcon = function() {
                 zIndex: this.zIndex,
             };
         }
-        if (webgl)
+        if (!useVectorIcon)
             delete style.image;
         this.markerStyle = new ol.style.Style(style);
         this.marker.setStyle(this.markerStyle);
     }
-    if (webgl)
+    if (!useVectorIcon)
         return;
 
     /*
@@ -1536,6 +1597,16 @@ PlaneObject.prototype.updateData = function(now, last, data, init) {
         this.dataSource = "ais";
     }
 
+    // Satellites arrive tagged type:"other" by readsb (SBS input has no source-type
+    // concept of its own), which is also legitimately used by some real Mode S/other
+    // sources and by AIS vessels - sharing that bucket meant satellites were both
+    // miscategorized and invisible in the by-source color/legend/filter system (grey,
+    // indistinguishable from AIS). Overriding here, unconditionally and every update,
+    // gives them their own dedicated value instead.
+    if (this.isSatellite) {
+        this.dataSource = "sat";
+    }
+
     if (isArray) {
         this.messages = data[9];
         this.updatePositionData(now, last, data, init);
@@ -1712,7 +1783,7 @@ PlaneObject.prototype.updateFeatures = function(redraw) {
 PlaneObject.prototype.clearMarker = function() {
     this.markerDrawn = false;
     if (this.marker && this.marker.visible) {
-        PlaneIconFeatures.removeFeature(this.marker);
+        (this.isSatellite ? SatelliteIconFeatures : PlaneIconFeatures).removeFeature(this.marker);
         this.marker.visible = false;
     }
     delete this.marker;
@@ -1746,14 +1817,19 @@ PlaneObject.prototype.updateMarker = function(moved) {
     }
     if (icaoType == null && this.squawk == 7777)
         icaoType = 'TWR';
+    // AIS vessels switch between the moving/static icon based on speed alone
+    // (see getBaseMarker) - fold that into the cache key so the shape actually
+    // updates as a vessel starts/stops, instead of sticking with whatever it
+    // was assigned on first sight. Irrelevant (and always false) for non-AIS.
+    let aisMoving = (this.dataSource == 'ais') ? (this.speed > 0.5) : false;
     let baseMarkerKey = this.category + "_"
-        + this.typeDescription + "_" + this.wtc  + "_" + icaoType + '_' + (this.altitude == "ground") + eastbound;
+        + this.typeDescription + "_" + this.wtc  + "_" + icaoType + '_' + (this.altitude == "ground") + eastbound + '_' + aisMoving;
 
     if (!this.shape || this.baseMarkerKey != baseMarkerKey) {
         this.baseMarkerKey = baseMarkerKey;
         let baseMarker = null;
         try {
-            baseMarker = getBaseMarker(this.category, icaoType, this.typeDescription, this.wtc, this.addrtype, this.altitude, eastbound);
+            baseMarker = getBaseMarker(this.category, icaoType, this.typeDescription, this.wtc, this.addrtype, this.altitude, eastbound, this.icao, this.speed);
         } catch (error) {
             console.error(error);
             console.log(baseMarkerKey);
@@ -1767,13 +1843,19 @@ PlaneObject.prototype.updateMarker = function(moved) {
     this.scale = iconSize * this.baseScale;
     this.strokeWidth = outlineWidth * ((this.selected && !SelectedAllPlanes && !onlySelected) ? 0.85 : 0.7) / this.baseScale;
 
-    if (!this.marker && (!webgl || g.enableLabels)) {
+    // Satellites now render through the same WebGL path as everything else -
+    // the sprite sheet has real cells for 'satellite' / 'sat_station' /
+    // 'sat_military', so there's no longer a reason to force them onto the
+    // vector-icon fallback the way there was when that cell didn't exist.
+    const useVectorIcon = !webgl;
+
+    if (!this.marker && (useVectorIcon || g.enableLabels)) {
         this.marker = new ol.Feature(this.olPoint);
         this.marker.hex = `${this.icao}`;
     }
-    if (webgl && !g.enableLabels && this.marker) {
+    if (!useVectorIcon && !g.enableLabels && this.marker) {
         if (this.marker.visible) {
-            PlaneIconFeatures.removeFeature(this.marker);
+            (this.isSatellite ? SatelliteIconFeatures : PlaneIconFeatures).removeFeature(this.marker);
             this.marker.visible = false;
         }
     }
@@ -1792,11 +1874,11 @@ PlaneObject.prototype.updateMarker = function(moved) {
         this.glMarker.set('sy', getSpriteY(this.shape) * glIconSize);
     }
 
-    if (this.marker && (!webgl || g.enableLabels)) {
+    if (this.marker && (useVectorIcon || g.enableLabels)) {
         this.updateIcon();
         if (!this.marker.visible) {
             this.marker.visible = true;
-            PlaneIconFeatures.addFeature(this.marker);
+            (this.isSatellite ? SatelliteIconFeatures : PlaneIconFeatures).addFeature(this.marker);
         }
     }
     if (webgl && this.glMarker && !this.glMarker.visible) {
@@ -1954,7 +2036,7 @@ PlaneObject.prototype.updateLines = function() {
         if (seg.feature && (!trackLabels || seg.label))
             break;
 
-        if ((filterTracks && altFiltered(seg.altitude)) || altitudeLines(seg) == nullStyle) {
+        if ((filterTracks && altFiltered(seg.altitude, this.isSatellite)) || altitudeLines(seg) == nullStyle) {
             seg.feature = true;
         } else if (!seg.feature) {
             seg.feature = true;
@@ -1967,7 +2049,7 @@ PlaneObject.prototype.updateLines = function() {
 
         if (seg.label) {
             // nothing to do, label already present
-        } else if ((filterTracks && altFiltered(seg.altitude)) || seg.noLabel) {
+        } else if ((filterTracks && altFiltered(seg.altitude, this.isSatellite)) || seg.noLabel) {
             seg.label = true;
         } else if (
             trackLabels ||
@@ -1977,6 +2059,8 @@ PlaneObject.prototype.updateLines = function() {
             let altString;
             if(seg.alt_real == "ground") {
                 altString = "Ground";
+            } else if (this.isSatellite) {
+                altString = (seg.alt_real == null) ? (NBSP+'?'+NBSP) : formatSatelliteAltitude(seg.alt_real);
             } else {
                 let alt;
                 if (labelsGeom) {
@@ -2092,7 +2176,7 @@ PlaneObject.prototype.updateLines = function() {
 
     if (!showTrace) {
         this.elastic_feature = new ol.Feature(geom);
-        if (filterTracks && altFiltered(lastseg.altitude)) {
+        if (filterTracks && altFiltered(lastseg.altitude, this.isSatellite)) {
             this.elastic_feature.setStyle(nullStyle);
         } else {
             this.elastic_feature.setStyle(altitudeLines(lastseg));
@@ -2350,6 +2434,10 @@ PlaneObject.prototype.altBad = function(newAlt, oldAlt, oldTime, data) {
 };
 
 PlaneObject.prototype.getAircraftData = function() {
+    if (this.isSatellite) {
+        this.dbinfoLoaded = true;
+        return;
+    }
     if (0) {
         this.dbinfoLoaded = true;
         return;
@@ -2600,6 +2688,9 @@ PlaneObject.prototype.updateTraceData = function(state, _now) {
     } else if (this.addrtype == 'unknown') {
         this.dataSource = "unknown";
     }
+    if (this.isSatellite) {
+        this.dataSource = "sat";
+    }
 
 };
 
@@ -2727,7 +2818,7 @@ PlaneObject.prototype.cross180 = function(on_ground, is_leg) {
 
 PlaneObject.prototype.dataChanged = function() {
     this.refreshTR = 0;
-    if (useRouteAPI){
+    if (useRouteAPI && !this.isSatellite){
         this.routeCheck();
     }
 }
@@ -2820,6 +2911,15 @@ PlaneObject.prototype.setTypeFlagsReg = function(data) {
 }
 
 PlaneObject.prototype.checkForDB = function(data) {
+    // Satellites never have a registration/type-code entry - the DB server has no
+    // chunk file for the synthetic F00000-FFFFFE hex block at all, so any lookup here
+    // fails every time. If that failure is ever classified as a timeout rather than a
+    // clean "not found", getAircraftData() retries itself forever - which is the loop
+    // this guard exists to prevent. Skip the whole subsystem for satellites.
+    if (this.isSatellite) {
+        this.dbinfoLoaded = true;
+        return;
+    }
     if (!this.dbinfoLoaded && this.icao >= 'ae6620' && this.icao <= 'ae6899') {
         this.icaoType = 'P8 ?';
         this.setTypeData();
@@ -3072,7 +3172,9 @@ function routeDoLookup() {
             for (let i in routes) {
                 const route = routes[i];
                 if (!route) {
-                    console.log(`Route API returned this invalid element: ${String(route)}, probably for`, g.route_check_checking[i]);
+                    if (debugRoute) {
+                        console.log(`Route API returned this invalid element: ${String(route)}, probably for`, g.route_check_checking[i]);
+                    }
                     continue;
                 }
                 route.tarNextUpdate = currentTime + 6 * 3600; // recheck in 6 hours

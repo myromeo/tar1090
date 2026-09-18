@@ -255,12 +255,12 @@ let utcTimesHistoric = true;
 
 // Only display labels when zoomed in this far:
 let labelZoom = 0;
-let labelZoomGround = 14.8;
+let labelZoomGround = 14;
 
 // font family for labels, default bold, could be empty or italic as well
 let labelStyle = 'bold';
 let labelFamily = 'Tahoma, Verdana, Helvetica, sans-serif';
-let labelScale = 1;
+let labelScale = 0.85;
 
 // labelFont this is now generated from the detailed settings above, setting this in config.js won't
 // have ANY effect
