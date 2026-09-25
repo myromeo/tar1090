@@ -1,6 +1,18 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
+## 25-09-2026
+- Busy week optimising satellite integration:
+- Changed satellite inject method from spoof readsb messages to standalone json (similar mechanism as used for vessels)
+- Updated the backend satellite engine to fetch satellite catalog data, and updated UI to display additional info
+- Introduced cache to reduce calls to CelesTrak
+- Updated image fetch lookup method to increase chances of an image match
+- Added satellite tracks via SGP4 reverse calculation and GET on select
+- Updated main site Telemetry page to directly poll the new json endpoint for satellite data
+- Fixed double click on Telemetry page to follow a satellite
+- Docker container tweaks to optimise performance for higher object counts
+- Various bug fixes
+
 ## 17-09-2026
 - Moved UI object rendering to WebGL
 - Added military satellites to 'U' filter
