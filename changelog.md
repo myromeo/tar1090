@@ -1,6 +1,22 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
+## 11-10-2026
+### Major update
+- New 2026 colour scheme across the map and main site, balanced to the logo and the OpenFreeMap basemap. Dark mode now properly inverts, logo included
+- New mobile layout: selecting an object opens a swipe-up details panel instead of the sidebar. The header shows country flag, ID, type, altitude, speed and route (e.g. Newcastle → Paris) or vessel destination, even when minimised
+- The selected object now stays centred in the visible part of the map (Follow switches on automatically on select, on desktop and mobile)
+- Country flags added to the sidebar and mobile panel, including satellite owners
+- Photos now sit in a consistent, centred box. Where no image exists, an outline of the aircraft, vessel class or satellite is shown instead
+- Satellite data split: catalogue details are now fetched once and cached, instead of being repeated in every position update. Position updates are around 75% smaller before compression, and gzip compressed on top
+- New satellite orbit info: orbit class, perigee × apogee, inclination and period (e.g. LEO · 413 × 420 km · 51.6° · 92.9 min), plus TLE age with a stale warning after 7 days, and docked objects flagged
+- Satellite tracks now update with every position change instead of lagging behind
+- Performance and stability for high object counts: satellites moved to their own WebGL layer, vessel hull outlines only load when zoomed in, feeds no longer overlap or hang, switched-off layers stop polling, and live vessel and satellite feeds pause during replay and heat map
+- Satellite engine now recovers on its own after a CelesTrak error (pauses for 24 hours, then retries once) instead of stopping until manually reset
+- Map tidy-up on mobile: zoom buttons retired on touch screens (pinch to zoom), altitude bar fits the screen, and map credits no longer overlap the controls
+- AISHub credit added to the map, plus updated disclaimer, About box and privacy policy
+- Various bug fixes
+
 ## 25-09-2026
 - Busy week optimising satellite integration:
 - Changed satellite inject method from spoof readsb messages to standalone json (similar mechanism as used for vessels)
@@ -53,4 +69,3 @@ All notable changes to this project will be documented here.
 ## 10-07-2026
 - Add Marine and Aircraft toggle buttons
 - Add AIS military, law enforcement and search and rescue to U button
-  
