@@ -3,19 +3,37 @@ All notable changes to this project will be documented here.
 
 ## 11-10-2026
 ### Major update
+**Install as an app**
+- mlat.uk can now be installed to your phone's home screen as a full-screen web app, with its own mlat.uk icon. On Android and desktop Chrome/Edge it's a one-tap install; on iPhone it's Share > Add to Home Screen. A small prompt offers this once per visit (map only, never inside the main site)
+- iPhone layout tuned for the installed app: the map runs edge to edge, the top buttons sit clear of the iOS status bar fade, and the bottom panel, credits and scale bar clear the home bar and curved screen corners
+- A simple "You're offline" page if the app is opened without a connection
+
+**Mobile and desktop interface**
 - New 2026 colour scheme across the map and main site, balanced to the logo and the OpenFreeMap basemap. Dark mode now properly inverts, logo included
-- New mobile layout: selecting an object opens a swipe-up details panel instead of the sidebar. The header shows country flag, ID, type, altitude, speed and route (e.g. Newcastle → Paris) or vessel destination, even when minimised
-- The selected object now stays centred in the visible part of the map (Follow switches on automatically on select, on desktop and mobile)
+- New mobile layout: selecting an object opens a swipe-up details panel instead of the sidebar. It always opens minimised, with the country flag, ID, full type name, altitude and speed, and a route line in plain English (e.g. Newcastle → Paris) or the vessel's destination
+- The selected object stays centred in the part of the map you can actually see, on both mobile (above the panel) and desktop (beside the sidebar)
 - Country flags added to the sidebar and mobile panel, including satellite owners
-- Photos now sit in a consistent, centred box. Where no image exists, an outline of the aircraft, vessel class or satellite is shown instead
-- Satellite data split: catalogue details are now fetched once and cached, instead of being repeated in every position update. Position updates are around 75% smaller before compression, and gzip compressed on top
-- New satellite orbit info: orbit class, perigee × apogee, inclination and period (e.g. LEO · 413 × 420 km · 51.6° · 92.9 min), plus TLE age with a stale warning after 7 days, and docked objects flagged
+- Photos now fill a consistent, centred frame. Where no image exists, an outline of the aircraft, vessel class or satellite is shown instead
+- Mobile tidy-up: zoom buttons retired on touch screens (pinch to zoom), the altitude bar fits the screen, map credits no longer overlap the controls, and About / Settings open neatly below the top menu
+
+**Satellites**
+- Satellite data split: catalogue details are fetched once and cached instead of being repeated in every position update. Position updates are around 75% smaller, and compressed on top
+- New orbit info: orbit class, perigee × apogee, inclination and period (e.g. LEO · 413 × 420 km · 51.6° · 92.9 min), plus TLE age with a stale warning after 7 days, and docked objects flagged
 - Satellite tracks now update with every position change instead of lagging behind
-- Performance and stability for high object counts: satellites moved to their own WebGL layer, vessel hull outlines only load when zoomed in, feeds no longer overlap or hang, switched-off layers stop polling, and live vessel and satellite feeds pause during replay and heat map
-- Satellite engine now recovers on its own after a CelesTrak error (pauses for 24 hours, then retries once) instead of stopping until manually reset
-- Map tidy-up on mobile: zoom buttons retired on touch screens (pinch to zoom), altitude bar fits the screen, and map credits no longer overlap the controls
-- AISHub credit added to the map, plus updated disclaimer, About box and privacy policy
-- Various bug fixes
+- The satellite engine now recovers on its own after a CelesTrak error (pauses for 24 hours, then retries once) instead of stopping until manually reset
+
+**Performance**
+- Much faster page load and smoother panning on high object counts: satellites on their own WebGL layer, vessel hull outlines only load when zoomed in, feeds no longer overlap or hang, switched-off layers stop polling, and live vessel and satellite feeds pause during replay and heat map
+
+**Main site and data**
+- Main site restyled to match the map, with updated feature pages, credits and privacy policy. The Telemetry page reads the new satellite data format
+- AISHub credit added to the map
+
+**Bug fixes**
+- Tapping the map to deselect no longer re-selects the aircraft when the tap lands near its trail
+- In History mode on touch screens, stray taps no longer jump the aircraft to random points along its path
+- The mobile panel no longer briefly opens full screen or stalls while an image is found
+- Various other fixes
 
 ## 25-09-2026
 - Busy week optimising satellite integration:
