@@ -1,6 +1,27 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
+## 12-10-2026
+### Feature update
+**mlat.uk MLAT server**
+- mlat.uk now runs its own multilateration (MLAT) server. Contributors can join with one extra line in Ultrafeeder (`mlat,feed.mlat.uk,31090;`), and the network will locate aircraft that don't broadcast their own position. Results are sent back to each contributor's own map too
+- MLAT positions appear on the map once three or four nearby stations are connected, so coverage will grow area by area as contributors join
+
+**Feeders and Telemetry**
+- Feeders are now recognised by every feed they send: ADS-B, MLAT, MLAT Hub and AIS. Stations sending only AIS or only MLAT are listed for the first time
+- New contributor tiers: a blue, bronze, silver or gold medal by the Feeder ID and a matching map pin, for one, two, three or all four feeds
+- Feed-type filters, feed badges and an MLAT sync health indicator on the Telemetry page's Feeders tab
+- MLAT stations show their station name and are placed within about 5-10 km of their receiver (never the exact position) instead of by IP address, with the nearest town in the table. Adding `--privacy` hides both
+- Contribute page: new MLAT section covering setup, accurate receiver position, station naming and privacy. Privacy policy updated to match
+
+**Satellites**
+- The TLE stale warning now depends on the orbit: 3 days for low orbit, 14 for highly elliptical, 30 for medium and geostationary. Navigation satellites such as Galileo are no longer flagged when their data is still accurate
+- The orbit summary in the mobile panel is no longer cut short by the stale warning, which now shows in the TLE Age row
+
+**Interface**
+- The desktop hover box and sidebar now match the mobile panel: flag, ID, summary line and route, then the key details for aircraft, vessels or satellites
+- The mobile panel now opens at mid height on select, and can be swiped down
+
 ## 11-10-2026
 ### Major update
 **Install as an app**
@@ -10,7 +31,7 @@ All notable changes to this project will be documented here.
 
 **Mobile and desktop interface**
 - New 2026 colour scheme across the map and main site, balanced to the logo and the OpenFreeMap basemap. Dark mode now properly inverts, logo included
-- New mobile layout: selecting an object opens a swipe-up details panel instead of the sidebar. It always opens minimised, with the country flag, ID, full type name, altitude and speed, and a route line in plain English (e.g. Newcastle → Paris) or the vessel's destination
+- New mobile layout: selecting an object opens a swipe-up details panel instead of the sidebar. It shows the country flag, ID, full type name, altitude and speed, and a route line in plain English (e.g. Newcastle → Paris) or the vessel's destination
 - The selected object stays centred in the part of the map you can actually see, on both mobile (above the panel) and desktop (beside the sidebar)
 - Country flags added to the sidebar and mobile panel, including satellite owners
 - Photos now fill a consistent, centred frame. Where no image exists, an outline of the aircraft, vessel class or satellite is shown instead
