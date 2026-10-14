@@ -1,0 +1,3581 @@
+"use strict";
+
+// --- Shared emergency detection (aircraft + vessels) -----------------------
+// 'squawk' = red tier (genuine distress: emergency squawk, or AIS-SART).
+// 'field'  = amber tier (priority/operational: ADS-B emergency field values
+//            other than a hard squawk match, or AIS "not under command").
+// Centralised here (loads before script.js) so every consumer -- the E
+// button, table row flashing, the emergency filter, marker colour, and the
+// ATC-style map label -- reads from one source of truth instead of five
+// independently-drifting copies.
+const aircraftEmergencySquawks = ["7400", "7500", "7600", "7601", "7700"];
+
+function getAircraftEmergencyLevel(plane) {
+    if (!plane) return null;
+    if (aircraftEmergencySquawks.includes(String(plane.squawk))) return 'squawk';
+    // ADS-B Emergency/Priority Status subfield: 0 = no emergency, 1-5 are
+    // real operational states, 6-7 are reserved/future use and don't
+    // represent an actual emergency to flag.
+    const em = Number(plane.emergency);
+    if (Number.isFinite(em) && em >= 1 && em <= 5) return 'field';
+    return null;
+}
+
+// Ships repurpose .squawk to hold the zero-padded AIS navigational status
+// string (e.g. "0014"), set in processBoat() -- reusing it here avoids
+// needing a second field just for this check.
+function getShipEmergencyLevel(plane) {
+    if (!plane) return null;
+    const s = String(plane.squawk);
+    if (s === '0014') return 'squawk'; // AIS-SART active -- red, same tier as a real distress squawk
+    if (s === '0002') return 'field';  // Not under command -- amber, an operational difficulty, not distress
+    return null;
+}
+
+function getEmergencyLevel(plane) {
+    return getAircraftEmergencyLevel(plane) || getShipEmergencyLevel(plane);
+}
+
+// ADS-B Emergency/Priority Status subfield -- a raw numeric code 0-7, per
+// the Mode A/C/S encoding, NOT a string enum:
+
+const aircraftEmergencyDescriptions = {
+    0: "No Emergency",
+    1: "General Emergency",
+    2: "Lifeguard / Medical Emergency",
+    3: "Minimum Fuel",
+    4: "No Communications",
+    5: "Unlawful Interference / Hijack",
+    6: "Reserved",
+    7: "Reserved",
+};
+
+const aircraftEmergencyShortLabels = {
+    1: "GENERAL",
+    2: "LIFEGUARD",
+    3: "MINFUEL",
+    4: "NORDO",
+    5: "HIJACK",
+    6: "RESERVED",
+    7: "RESERVED",
+};
+
+function getAircraftEmergencyDescription(plane) {
+    if (!plane) return "";
+    const em = Number(plane.emergency);
+    if (Number.isFinite(em) && em > 0 && aircraftEmergencyDescriptions.hasOwnProperty(em)) {
+        return aircraftEmergencyDescriptions[em];
+    }
+    return (typeof getAircraftStatusDescription === 'function') ? getAircraftStatusDescription(plane.squawk) : "";
+}
+
+const shipEmergencyDescriptions = {
+    "0014": "AIS-SART Active / SOS (0014)",
+    "0002": "Not Under Command (0002)",
+};
+
+// Routes to the correct description table by vehicle type -- ships must
+// NOT fall through to the aircraft squawk-code table, since a ship's
+// status string ("0014", "0002") collides with unrelated real entries
+// in that table (e.g. aircraft squawk "0014" means something else
+// entirely).
+function getEmergencyDescription(plane) {
+    if (!plane) return "";
+    if (getShipEmergencyLevel(plane) !== null) {
+        return shipEmergencyDescriptions[String(plane.squawk)] || "";
+    }
+    return getAircraftEmergencyDescription(plane);
+}
+// --- end shared emergency detection -----------------------------------------
+
+// Satellites arrive via the ADS-B feed with a synthetic hex, but they aren't
+// an ADS-B/MLAT/TIS-B source in any real sense -- format_data_source()
+// (layers.js) has no entry for whatever raw dataSource value they end up
+// with, hence the "unknown" label. One override, used everywhere the app
+// displays a data source, rather than three separately-patched call sites.
+function getDisplayDataSource(plane) {
+    if (!plane) return "n/a";
+    if (plane.isSatellite) return "CelesTrak TLE";
+    return format_data_source(plane.getDataSource());
+}
+
+// Expands a 2-letter country code to its full English name (e.g. "US" ->
+// "United States"), same conversion used in the sidebar. Aircraft get this
+// from their ICAO hex range, vessels from the AIS country field directly --
+// both end up as a raw code or "special use" here, handled the same way.
+// Satellites fall in an unallocated ICAO block and have no meaningful
+// country at all; callers should hide the row for them rather than call this.
+function getDisplayCountry(plane) {
+    if (!plane) return "";
+    const rawCountry = plane.country ? plane.country.trim() : "";
+    if (rawCountry === "special use") return "special";
+    if (rawCountry.length === 2) {
+        try {
+            const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+            return regionNames.of(rawCountry.toUpperCase());
+        } catch (e) {
+            return rawCountry;
+        }
+    }
+    return rawCountry;
+}
+
+function PlaneObject(icao) {
+    icao = `${icao}`;
+
+    g.planes[icao] = this;
+    g.planesOrdered.push(this);
+
+    // Info about the plane
+    this.icao      = icao;
+    const icaorange = findICAORange(icao);
+    this.country = icaorange.country;
+    this.country_code = icaorange.country_code;
+
+	this.numHex = parseInt(icao.replace('~', '1'), 16);
+	this.fakeHex = icao.startsWith('MMSI') || !Number.isFinite(this.numHex) || this.numHex > 16777215;
+
+	// Satellites now arrive via their own direct JSON feed (see updateSatellites()
+	// / processSatellite() in script.js, and app-2.js), keyed "SAT<noradId>" -
+	// exactly the same convention AIS vessels already use ("MMSI<mmsi>"). No
+	// hex decoding of any kind: this used to be isSatelliteHex(icao) reading a
+	// synthetic ICAO hex that encoded category+NORAD ID into 24 bits (see the
+	// git history for that scheme, and why it silently broke once CelesTrak
+	// passed 100000 catalog numbers) - that whole encoding no longer exists.
+	this.isSatellite = icao.startsWith('SAT');
+
+	// Set directly by processSatellite() right after construction, the same
+	// way AIS vessels' this.ship_type/this.dims are - not decoded from
+	// anything, just plain fields off the ingested JSON. Start null so any
+	// code that runs before the first update (there shouldn't be any, but
+	// safety first) sees "unknown" rather than a stale/wrong value.
+	this.satCategory = null;
+	this.satNoradId = null;
+
+	// Owner/country, launch info, RCS, and the NORAD ID this data is actually
+	// for - all set directly by processSatellite() from the same JSON that
+	// supplies position, since app-2.js now fetches and merges CelesTrak's
+	// SATCAT data server-side once per refresh cycle. No separate client-side
+	// lookup, cache, or fetch of any kind - unlike the AIS vessel photo/route
+	// lookups elsewhere in this codebase, there is nothing left to fetch here.
+	this.satOwner = null;
+	this.satRcs = null;
+	this.satNoradIdConfirmed = null;
+
+	// Individually-labeled versions of the same underlying data, for the
+	// sidebar's own "Object Type / Owner / Ops Status / Launch Date /
+	// Launch Site / International ID" block - separate plain-text fields.
+	// object_id is CelesTrak's COSPAR/international designator (e.g.
+	// "1998-067A") - a different identifier from the NORAD catalog number
+	// in satNoradIdConfirmed.
+	this.satObjectType = null;
+	this.satOpsStatus = null;
+	this.satLaunchDate = null;
+	this.satLaunchSite = null;
+	this.satInternationalId = null;
+
+    // most properties are set via this function so they can be reset easily
+    this.setNull();
+
+    // Track history as a series of line segments
+    this.elastic_feature = null;
+    this.track_linesegs = [];
+    this.history_size = 0;
+    this.trace = []; // save last 30 seconds of positions
+    this.lastTraceTs = 0;
+    this.routeString = null;
+
+    // Display info
+    this.visible = false;
+    this.marker = null;
+    this.markerStyle = null;
+    this.markerIcon = null;
+    this.markerStyleKey = null;
+    this.markerSvgKey = null;
+    this.baseScale = 1;
+
+    // start from a computed registration, let the DB override it
+    // if it has something else.
+    this.registration = registration_from_hexid(this.icao);
+    this.icaoType = null;
+    this.typeDescription = null;
+    this.typeLong = null;
+    this.wtc = null;
+
+    this.dbinfoLoaded = false;
+    // request metadata
+    this.checkForDB();
+
+    // military icao ranges (aircraft) - satellites don't have real ICAO hex
+    // addresses, so this hex-block heuristic is meaningless for them; use
+    // their actual TLE-derived category instead, so the "U" (military-only)
+    // filter picks up military satellites too.
+    this.military = this.isSatellite ? (this.satCategory === 'military') : this.milRange();
+}
+
+PlaneObject.prototype.setNull = function() {
+    this.flight = null;
+    this.flightTs = 0;
+    this.name = 'no callsign';
+    this.squawk    = null;
+    this.category  = null;
+    this.dataSource = "modeS";
+
+    // Basic location information
+    this.altitude       = null;
+    this.alt_baro       = null;
+    this.alt_geom       = null;
+    this.altitudeTime   = 0;
+    this.bad_alt        = null;
+    this.bad_altTime    = null;
+    this.alt_reliable   = 0;
+
+    this.speed          = null;
+    this.gs             = null;
+    this.ias            = null;
+    this.tas            = null;
+
+    this.track          = null;
+    this.track_rate     = null;
+    this.mag_heading    = null;
+    this.true_heading   = null;
+    this.mach           = null;
+    this.roll           = null;
+    this.nav_altitude   = null;
+    this.nav_heading    = null;
+    this.nav_modes      = null;
+    this.nav_qnh        = null;
+    this.rc				= null;
+
+    this.rotation       = 0;
+    this.rotationCache = 999;
+
+    this.nac_p			= null;
+    this.nac_v			= null;
+    this.nic_baro		= null;
+    this.sil_type		= null;
+    this.sil			= null;
+
+    this.baro_rate      = null;
+    this.geom_rate      = null;
+    this.vert_rate      = null;
+
+
+    this.wd = null;
+    this.ws = null;
+    this.oat = null;
+    this.tat = null;
+
+    this.version        = null;
+
+    this.position  = null;
+    this.sitedist  = null;
+    this.too_fast = 0;
+
+    // Track (direction) at the time we last appended to the track history
+    this.tail_track = null;
+    this.tail_true = null;
+    // Timestamp of the most recent point appended to the track history
+    this.tail_update = null;
+
+    this.prev_position = null;
+    this.prev_time = null;
+    this.prev_track = null;
+
+    // When was this last updated (receiver timestamp)
+    this.seen = NaN;
+    this.last_message_time = NaN;
+    this.seen_pos = NaN;
+    this.position_time = NaN;
+    this.last_info_server = 0;
+
+    this.last = 0; // last json this plane was included in
+
+    // Data packet numbers
+    this.messages  = NaN;
+    this.rssi      = null;
+    this.msgs1090  = 0;
+    this.msgs978   = 0;
+    this.messageRate = 0;
+    this.messageRateOld = 0;
+};
+
+function planeCloneState(target, source) {
+    target.flight = source.flight;
+    target.flightTs = source.flightTs;
+    target.name = source.name;
+    target.squawk = source.squawk;
+    target.category = source.category;
+    target.dataSource = source.dataSource;
+    target.altitude = source.altitude;
+    target.alt_baro = source.alt_baro;
+    target.alt_geom = source.alt_geom;
+    target.altitudeTime = source.altitudeTime;
+    target.bad_alt = source.bad_alt;
+    target.bad_altTime = source.bad_altTime;
+    target.alt_reliable = source.alt_reliable;
+    target.speed = source.speed;
+    target.gs = source.gs;
+    target.ias = source.ias;
+    target.tas = source.tas;
+    target.track = source.track;
+    target.track_rate = source.track_rate;
+    target.mag_heading = source.mag_heading;
+    target.true_heading = source.true_heading;
+    target.mach = source.mach;
+    target.roll = source.roll;
+    target.nav_altitude = source.nav_altitude;
+    target.nav_heading = source.nav_heading;
+    target.nav_modes = source.nav_modes;
+    target.nav_qnh = source.nav_qnh;
+    target.rc = source.rc;
+    target.rotation = source.rotation;
+    target.rotationCache = source.rotationCache;
+    target.nac_p = source.nac_p;
+    target.nac_v = source.nac_v;
+    target.nic_baro = source.nic_baro;
+    target.sil_type = source.sil_type;
+    target.sil = source.sil;
+    target.baro_rate = source.baro_rate;
+    target.geom_rate = source.geom_rate;
+    target.vert_rate = source.vert_rate;
+    target.wd = source.wd;
+    target.ws = source.ws;
+    target.oat = source.oat;
+    target.tat = source.tat;
+    target.version = source.version;
+    target.position = source.position;
+    target.sitedist = source.sitedist;
+    target.too_fast = source.too_fast;
+
+    target.seen = source.seen;
+    target.last_message_time = source.last_message_time;
+    target.seen_pos = source.seen_pos;
+    target.position_time = source.position_time;
+    target.last = source.last;
+    target.messages = source.messages;
+    target.rssi = source.rssi;
+    target.msgs1090 = source.msgs1090;
+    target.msgs978 = source.msgs978;
+    target.messageRate = source.messageRate;
+    target.messageRateOld = source.messageRateOld;
+};
+
+
+
+PlaneObject.prototype.checkLayers = function() {
+    if (!this.trail_features)
+        this.createFeatures();
+    if ((showTrace || trackLabels) && !this.trail_labels)
+        this.createLabels();
+};
+
+PlaneObject.prototype.createFeatures = function() {
+    this.trail_features = new ol.source.Vector();
+
+    this.layer = new ol.layer.Vector({
+        name: `${this.icao}`,
+        isTrail: true,
+        source: this.trail_features,
+        declutter: false,
+        zIndex: 150,
+        renderOrder: null,
+    });
+
+    trailGroup.push(this.layer);
+};
+
+PlaneObject.prototype.createLabels = function() {
+    this.trail_labels = new ol.source.Vector();
+
+    this.layer_labels = new ol.layer.Vector({
+        name: `${this.icao}_labels`,
+        isTrail: true,
+        source: this.trail_labels,
+        declutter: true,
+        zIndex: 151,
+    });
+
+    trailGroup.push(this.layer_labels);
+};
+
+PlaneObject.prototype.logSel = function(loggable) {
+    if (debugTracks && this.selected && !SelectedAllPlanes && !globeIndex)
+        console.log(loggable);
+    return;
+};
+
+PlaneObject.prototype.isFiltered = function() {
+    if (this.selected)
+        return false;
+	
+	// 1. If ShowMarine is false, hide any vessel whose ICAO or ID starts with MMSI
+    if (window.ShowMarine === false && typeof this.icao === 'string' && this.icao.startsWith('MMSI')) {
+        return true;
+    }
+
+    // 2. If ShowSatellites is false, hide anything in the synthetic satellite hex block
+    if (this.isSatellite) {
+        if (window.ShowSatellites === false) {
+            return true;
+        }
+    }
+    // 3. If ShowAir is false, hide regular aircraft (not vessels, not satellites)
+    else if (window.ShowAir === false && typeof this.icao === 'string' && !this.icao.startsWith('MMSI')) {
+        return true;
+    }
+
+    if (noRegOnly && (
+        (this.registration || this.icao.startsWith('~'))
+        || (this.category && this.category.startsWith('C'))
+        || (this.squawk == '7777')
+        || (this.icaoType == 'TWR')
+        || (this.icaoType == 'GND')
+        || (this.altitude == 'ground' && (this.addrtype == 'adsb_icao_nt' || this.addrtype == 'tisb_other'))
+    )) {
+        return true;
+    }
+
+    for (const filter of filters_active) {
+        if (!this[filter.field] || !this[filter.field].toUpperCase().match(filter.PATTERN)) {
+            //this[filter.field] && console.log(this[filter.field].toUpperCase() + ' ' + filter.PATTERN);
+            return true;
+        }
+    }
+
+    if (g.icao_nt_only && this.addrtype != 'adsb_icao_nt') {
+        return true;
+    }
+
+	if (onlySelected && SelectedPlane && !this.selected) {
+	    return true;
+	}
+	
+    // E and U are independent toggles. With one active, show only that
+    // category. With both active, show the union (E OR U) rather than
+    // requiring an object to satisfy both simultaneously — mirrors
+    // customCheckPlaneFilter() in script.js.
+    if (onlyMilitary || onlyEmergency) {
+        const passesMilitary = onlyMilitary && this.military;
+        const passesEmergency = onlyEmergency && (getEmergencyLevel(this) !== null);
+        if (!passesMilitary && !passesEmergency) {
+            return true;
+        }
+    }
+
+    if (nogpsOnly && !this.nogps) {
+        return true;
+    }
+
+    // "Show all on map" from the search box: only objects matching the
+    // search term (the same matching as the search results; script.js)
+    if (g.searchFilter && !g.searchFilter.match(this)) {
+        return true;
+    }
+
+    if (!filterTracks && altFiltered(this.altitude, this.isSatellite))
+        return true;
+
+    if (PlaneFilter.sources && PlaneFilter.sources.length > 0 && !PlaneFilter.sources.includes(this.dataSource)) {
+        return true;
+    }
+
+    const flags = PlaneFilter.flagFilter;
+    if (flags && flags.length > 0) {
+        let found = false;
+        for (const flag of flags) {
+            if (this[flag]) {
+                found = true;
+            }
+        }
+        if (!found) {
+            return true;
+        }
+    }
+
+    // filter out ground vehicles
+    if (PlaneFilter.groundVehicles == 'filtered') {
+        if (typeof this.category === 'string' && this.category.startsWith('C'))
+            return true;
+        if (this.altitude == 'ground' && (this.addrtype == 'adsb_icao_nt' || this.addrtype == 'tisb_other'))
+            return true;
+        if (this.squawk == 7777)
+            return true;
+    }
+
+    // filter out blocked MLAT flights (Changed to always false)
+    if (PlaneFilter.blockedMLAT == 'filtered') {
+        if (typeof this.icao === 'string' && this.icao.startsWith('~'))
+            return false;
+    }
+
+    if (this.sitedist && this.sitedist > filterMaxRange)
+        return true;
+
+    return false;
+};
+
+
+function altFiltered(altitude, isSatellite) {
+    if (isSatellite) return false;
+    if (PlaneFilter.minAltitude == null || PlaneFilter.maxAltitude == null)
+        return false;
+    if (altitude == null) {
+        return true;
+    }
+    const planeAltitude = altitude === "ground" ? 0 : altitude;
+    if (planeAltitude < PlaneFilter.minAltitude || planeAltitude > PlaneFilter.maxAltitude) {
+        return true;
+    }
+    return false;
+}
+
+PlaneObject.prototype.updateTail = function() {
+
+    this.tail_update = this.prev_time;
+    this.tail_track = this.prev_track;
+    this.tail_rot = this.prev_rot;
+    this.tail_true = this.prev_true;
+    this.tail_position = this.prev_position;
+
+    return this.updateTrackPrev();
+};
+
+PlaneObject.prototype.updateSatellitePrev = function() {
+    if (this.position == null)
+        return;
+    if (this.prev_position
+        && this.position[0] == this.prev_position[0]
+        && this.position[1] == this.prev_position[1])
+        return;
+    if (this.request_rotation_from_track && this.prev_position) {
+        this.rotation = bearingFromLonLat(this.prev_position, this.position);
+        this.request_rotation_from_track = false;
+    }
+    this.updateTrackPrev();
+};
+
+PlaneObject.prototype.updateTrackPrev = function() {
+
+    this.prev_position = this.position;
+    this.prev_time = this.position_time;
+    this.prev_track = this.track;
+    this.prev_rot = this.rotation;
+    this.prev_true = this.true_heading;
+    this.prev_alt = this.altitude;
+    this.prev_alt_rounded = this.alt_rounded;
+    this.prev_alt_geom = this.alt_geom;
+    this.prev_speed = this.speed;
+    this.prev_rId = this.rId;
+    this.prev_dataSource = this.dataSource;
+
+    return true;
+};
+
+// Appends data to the running track so we can get a visual tail on the plane
+// Only useful for a long running browser session.
+PlaneObject.prototype.updateTrack = function(now, last, serverTrack, stale) {
+    if (this.position == null)
+        return false;
+    if (this.prev_position && this.position[0] == this.prev_position[0] && this.position[1] == this.prev_position[1]
+        && !serverTrack)
+        return false;
+    if (this.bad_position && this.position[0] == this.bad_position[0] && this.position[1] == this.bad_position[1])
+        return false;
+
+    if (this.position[0] > 180 || this.position[0] < -180 || this.position[1] > 90 || this.position[1] < -90) {
+        console.log("Ignoring Impossible Position for " + this.icao + ": " + this.position);
+        this.bad_position = this.position;
+        return false;
+    }
+
+    let projHere = ol.proj.fromLonLat(this.position);
+    let on_ground = (this.altitude === "ground");
+
+    let is_leg = false;
+    if (this.leg_ts == now)
+        is_leg = 'end';
+    if (this.leg_ts == last)
+        is_leg = 'start';
+
+    if (this.track_linesegs.length == 0) {
+        // Brand new track
+        //console.log(this.icao + " new track");
+        if (this.leg_ts == now)
+            is_leg = 'start';
+        let newseg = { fixed: new ol.geom.LineString([projHere]),
+            feature: null,
+            estimated: false,
+            ground: (this.altitude == "ground"),
+            altitude: this.alt_rounded,
+            alt_real: this.altitude,
+            alt_geom: this.alt_geom,
+            position: this.position,
+            speed: this.speed,
+            ts: now,
+            track: this.rotation,
+            leg: is_leg,
+            rId: this.rId,
+            dataSource: this.dataSource,
+        };
+        this.track_linesegs.push(newseg);
+        this.history_size ++;
+        this.updateTrackPrev();
+        return this.updateTail();
+    }
+
+    let lastseg = this.track_linesegs[this.track_linesegs.length - 1];
+
+    if (!this.prev_position) {
+        return this.updateTail();
+    }
+
+    let projPrev = ol.proj.fromLonLat(this.prev_position);
+
+    if (!this.tail_position) {
+        lastseg.fixed.appendCoordinate(projPrev);
+        return this.updateTail();
+    }
+
+    let distance = ol.sphere.getDistance(this.position, this.prev_position);
+    let elapsed = this.position_time - this.prev_time;
+
+    let derivedMach = 0.01;
+    let filterSpeed = 10000;
+
+    const pFilter = !serverTrack && (positionFilter == true || (positionFilter == 'onlyMLAT' && this.dataSource == "mlat"));
+
+    if (pFilter) {
+        derivedMach = (distance/(this.position_time - this.prev_time + 0.4))/343;
+        filterSpeed = on_ground ? positionFilterSpeed/10 : positionFilterSpeed;
+        filterSpeed = (this.speed != null && this.prev_speed != null) ? (positionFilterGsFactor*(Math.max(this.speed, this.prev_speed)+10+(this.dataSource == "mlat")*100)/666) : filterSpeed;
+    }
+
+    // ignore the position if the object moves faster than positionFilterSpeed (default Mach 3.5)
+    // or faster than twice the transmitted groundspeed
+    if (pFilter && derivedMach > filterSpeed && this.too_fast < 1) {
+        this.bad_position = this.position;
+        this.too_fast++;
+        if (debugPosFilter) {
+            console.log(this.icao + " / " + this.name + " ("+ this.dataSource + "): Implausible position filtered: " + this.bad_position[0] + ", " + this.bad_position[1] + " (kt/Mach " + (derivedMach*666).toFixed(0) + " > " + (filterSpeed*666).toFixed(0)   + " / " + derivedMach.toFixed(2) + " > " + filterSpeed.toFixed(2) + ") (" + (this.position_time - this.prev_time + 0.2).toFixed(1) + "s)");
+        }
+        this.position = this.prev_position;
+        this.position_time = this.prev_time;
+        if (debugPosFilter) {
+            this.drawRedDot(this.bad_position);
+            jumpTo = this.icao;
+        }
+        return false;
+    } else {
+        this.too_fast = Math.max(-5, this.too_fast-0.8);
+    }
+
+    if (this.request_rotation_from_track && this.prev_position) {
+        this.rotation = bearingFromLonLat(this.prev_position, this.position);
+        this.request_rotation_from_track = false;
+    }
+
+
+    // special case crossing the 180 -180 longitude line by just starting a new track
+    if ((this.position[0] < -90 && this.prev_position[0] > 90)
+        || (this.position[0] > 90 && this.prev_position[0] < -90)
+    ) {
+        lastseg.fixed.appendCoordinate(projPrev);
+
+        this.cross180(on_ground, is_leg);
+
+        this.history_size += 258;
+
+        return this.updateTail();
+    }
+
+
+    // Determine if track data are intermittent/stale
+    // Time difference between two position updates should not be much
+    // greater than the difference between data inputs
+    let time_difference = (this.position_time - this.prev_time) - 2;
+    if (g.refreshHistory || !loadFinished || serverTrack)
+        time_difference = (this.position_time - this.prev_time) - Math.min(60, now - last);
+
+    //let stale_timeout = lastseg.estimated ? 5 : 10;
+    let stale_timeout = 15;
+
+    // MLAT data are given some more leeway
+    if (this.dataSource == "mlat")
+        stale_timeout = 15;
+
+    // On the ground you can't go that quick
+    if (on_ground)
+        stale_timeout = 30;
+
+    if (pTracks && !serverTrack) {
+        stale = false;
+        stale_timeout = 120;
+        if (this.dataSource == "adsc")
+            stale_timeout = jaeroTimeout;
+    }
+
+    const modeS = (this.prev_dataSource == 'modeS');
+
+    if (replay)
+        stale_timeout = 2 * replay.ival + 1;
+
+    // Also check if the position was already stale when it was exported by dump1090
+    // Makes stale check more accurate for example for 30s spaced history points
+
+    let estimated = (time_difference > stale_timeout) || ((now - this.position_time) > stale_timeout) || stale;
+
+    if (estimated) {
+        //console.trace();
+        //console.log('estimated ' + new Date(1000 * this.position_time) + ' ' + this.position);
+    }
+
+    /*
+    let track_change = this.track != null ? Math.abs(this.tail_track - this.track) : NaN;
+    track_change = track_change < 180 ? track_change : Math.abs(track_change - 360);
+    let true_change =  this.trueheading != null ? Math.abs(this.tail_true - this.true_heading) : NaN;
+    true_change = true_change < 180 ? true_change : Math.abs(true_change - 360);
+    if (!isNaN(true_change)) {
+        track_change = isNaN(track_change) ? true_change : Math.max(track_change, true_change);
+    }
+    */
+    let track_change = Math.abs(this.tail_rot - this.rotation);
+
+    let alt_change = Math.abs(this.alt_rounded - lastseg.altitude);
+    let since_update = this.prev_time - this.tail_update;
+    let distance_traveled = ol.sphere.getDistance(this.tail_position, this.prev_position);
+
+    if (pTracks && since_update < pTracksInterval && !serverTrack) {
+        return this.updateTrackPrev();
+    }
+
+    if (
+        this.prev_alt_rounded !== lastseg.altitude
+        || modeS
+        || this.prev_time > lastseg.ts + 300
+        || (!pTracks && this.prev_time > lastseg.ts + 15)
+        || estimated != lastseg.estimated
+        || estimated
+        || tempTrails
+        || debugAll
+        || serverTrack
+        || !globeIndex && (
+            track_change > 5
+            || Math.abs(this.prev_speed - lastseg.speed) > 10
+            || Math.abs(this.prev_alt - lastseg.alt_real) > 200
+        )
+
+        //lastseg.ground != on_ground
+        //|| (!on_ground && isNaN(alt_change))
+        //|| (alt_change > 700)
+        //|| (alt_change > 375 && this.alt_rounded < 9000)
+        //|| (alt_change > 150 && this.alt_rounded < 5500)
+    ) {
+        // Create a new segment as the ground state or the altitude changed.
+        // The new state is only drawn after the state has changed
+        // and we then get a new position.
+
+        if (verboseUpdateTrack) {
+            this.logSel("sec_elapsed: " + since_update.toFixed(1) + " alt_change: "+ alt_change.toFixed(0) + " derived_speed(kt/Mach): " + (distance_traveled/since_update*1.94384).toFixed(0) + " / " + (distance_traveled/since_update/343).toFixed(1) + " dist:" + distance_traveled.toFixed(0));
+        }
+
+        let segments = [[projPrev]];
+
+        if ((since_update > 3600 && distance_traveled / since_update * 3.6 < 100) || modeS) {
+            // don't draw a line if a long time has elapsed but no great distance was traveled
+        } else {
+            lastseg.fixed.appendCoordinate(projPrev);
+        }
+
+        let estimatedFill = false;
+
+        // draw great circle path for long distances
+        if (distance > 30000
+            && !(elapsed > 3600 && distance / elapsed * 3.6 < 100) && !modeS
+            // don't draw a line if a long time has elapsed but no great distance was traveled
+        ) {
+            estimatedFill = true;
+            if (!(pTracks && !serverTrack)) {
+                estimated = true;
+            }
+            let nPoints = distance / 19000;
+            let greyskull = Math.ceil(Math.log(nPoints) / Math.log(2));
+            //console.log(Math.round(nPoints) + ' ' + greyskull);
+            let points = makeCircle([this.prev_position, this.position], greyskull);
+            segments = [[]];
+            let seg_index = 0;
+            let last_lon = this.prev_position[0];
+            for (let i in points) {
+                let point = points[i];
+                let lon = point[0];
+                if (Math.abs(last_lon - lon) > 270) {
+                    //console.log(i + ' ' + point);
+                    segments.push([]);
+                    seg_index++;
+                }
+                let segment = segments[seg_index];
+                segment.push(ol.proj.fromLonLat(point));
+                last_lon = lon;
+            }
+        }
+
+        for (let i in segments) {
+            let points = segments[i];
+            this.track_linesegs.push({ fixed: new ol.geom.LineString(points),
+                feature: null,
+                estimated: estimated,
+                estimatedFill: estimatedFill,
+                ground: (this.prev_alt == "ground"),
+                altitude: this.prev_alt_rounded,
+                alt_real: this.prev_alt,
+                alt_geom: this.prev_alt_geom,
+                position: this.prev_position,
+                speed: this.prev_speed,
+                ts: this.prev_time,
+                track: this.prev_rot,
+                leg: is_leg,
+                rId: this.prev_rId,
+                dataSource: this.prev_dataSource,
+                noLabel: (i > 0),
+            });
+        }
+
+        this.history_size += 2;
+
+        return this.updateTail();
+    }
+
+    if (modeS) {
+        return this.updateTrackPrev();
+    }
+
+    // Add current position to the existing track.
+    // We only retain some points depending on time elapsed and track change
+    let turn_density = 6.5;
+    if (pTracks && pTracksInterval > 5) turn_density = 3;
+    if (
+        since_update > 86 + !!pTracks * 90 ||
+        (!on_ground && since_update > (100/turn_density)/track_change) ||
+        (!on_ground && isNaN(track_change) && since_update > 8 + !!pTracks * 22) ||
+        (on_ground && since_update > (120/turn_density)/track_change && distance_traveled > 20) ||
+        (on_ground && distance_traveled > 50 && since_update > 5) ||
+        debugAll
+    ) {
+
+        lastseg.fixed.appendCoordinate(projPrev);
+        this.history_size ++;
+
+        this.logSel("sec_elapsed: " + since_update.toFixed(1) + " " + (on_ground ? "ground" : "air") +  " dist:" + distance_traveled.toFixed(0) +  " track_change: "+ track_change.toFixed(1) + " derived_speed(kt/Mach): " + (distance_traveled/since_update*1.94384).toFixed(0) + " / " + (distance_traveled/since_update/343).toFixed(1));
+
+        return this.updateTail();
+    }
+
+    return this.updateTrackPrev();
+};
+
+PlaneObject.prototype.getDataSourceNumber = function() {
+    if (this.dataSource == "modeS")
+        return 5;
+    if (this.dataSource == "adsc")
+        return 6;
+    if (this.dataSource == "mlat")
+        return 3;
+
+    if (this.dataSource == "uat" || (this.addrtype && this.addrtype.substring(0,4) == "adsr"))
+        return 2; // UAT
+
+    if (this.dataSource == "tisb")
+        return 4; // TIS-B
+    if (this.dataSource == "adsb")
+        return 1;
+
+    // Its own slot - deliberately checked before the Other/AIS bucket below,
+    // which is exactly what satellites used to fall into (see the dataSource
+    // override in updateData()/updateTraceData() that produces "sat" in the
+    // first place).
+    if (this.dataSource == "sat")
+        return 9;
+
+    if (this.dataSource == "other" || this.dataSource == "ais")
+        return 7;
+
+    return 8;
+};
+
+PlaneObject.prototype.getDataSource = function() {
+    return this.dataSource;
+};
+
+PlaneObject.prototype.getMarkerColor = function(options) {
+    options |= {}
+    if (monochromeMarkers) {
+        return hexToHSL(monochromeMarkers);
+    }
+
+    let alt = options.noRound ? this.altitude : this.alt_rounded;
+    if (this.category == 'C3' || this.icaoType == 'TWR' || (this.icaoType == null && this.squawk == 7777))
+        alt = 'ground';
+
+    let h, s, l;
+
+    // Satellites get a fixed, category-based color instead of the altitude
+    // gradient below: they all sit near the same SBS altitude cap regardless
+    // of category, so altitude-based color would make every satellite the
+    // same top-of-scale hue - useless for telling categories apart at a glance.
+    if (this.isSatellite && typeof SAT_CATEGORIES !== 'undefined') {
+        const def = SAT_CATEGORIES[this.satCategory] || SAT_CATEGORIES.other;
+        const color = def ? def.color : [210, 15, 55];
+        h = color[0];
+        s = color[1];
+        l = color[2];
+    } else if (this.dataSource == 'ais' && typeof getAisVesselColor !== 'undefined') {
+        // AIS targets are the same reason satellites get an override above:
+        // altitude is pinned to 0 for every vessel (see processBoat), which
+        // would otherwise flatten every vessel type to the same hue.
+        const color = getAisVesselColor(this);
+        h = color[0];
+        s = color[1];
+        l = color[2];
+    } else {
+        let colorArr = altitudeColor(alt);
+
+        h = colorArr[0];
+        s = colorArr[1];
+        l = colorArr[2];
+    }
+
+    // If we have not seen a recent position update, change color. AIS
+    // vessels ALWAYS get this treatment, regardless of actual freshness or
+    // globeIndex - a deliberate style choice (not a staleness signal) so
+    // vessels read as visually distinct from aircraft on the map at a
+    // glance, not because their data is old.
+    if (this.dataSource == 'ais'
+        || (this.dataSource == 'adsc' && this.seen_pos > 20 * 60)
+        || (!globeIndex && this.dataSource != 'adsc' && this.seen_pos > 15))  {
+        h += ColorByAlt.stale.h;
+        s += ColorByAlt.stale.s;
+        l += ColorByAlt.stale.l;
+    }
+    if (alt == "ground") {
+        l += 15;
+    }
+
+    // If this marker is selected, change color
+    if (this.selected && !SelectedAllPlanes && !onlySelected){
+        h += ColorByAlt.selected.h;
+        s += ColorByAlt.selected.s;
+        l += ColorByAlt.selected.l;
+    }
+
+    // If this marker is a mlat position, change color
+    if (this.dataSource == "mlat") {
+        h += ColorByAlt.mlat.h;
+        s += ColorByAlt.mlat.s;
+        l += ColorByAlt.mlat.l;
+    }
+
+    if (atcStyle) {
+        const emergencyLevel = getEmergencyLevel(this);
+        if (emergencyLevel === 'squawk') {
+            h = 0;
+            s = 100;
+            l = 40;
+        } else if (emergencyLevel === 'field') {
+            h = 40;
+            s = 100;
+            l = 40;
+        }
+    }
+
+    if (h < 0) {
+        h = (h % 360) + 360;
+    } else if (h >= 360) {
+        h = h % 360;
+    }
+
+    if (s < 0) s = 0;
+    else if (s > 95) s = 95;
+
+    if (l < 0) l = 0;
+    else if (l > 95) l = 95;
+
+    return [h, s, l];
+};
+
+function altitudeColor(altitude) {
+    altitude = adjust_baro_alt(altitude);
+    let h, s, l;
+
+    if (altitude == null) {
+        h = ColorByAlt.unknown.h;
+        s = ColorByAlt.unknown.s;
+        l = ColorByAlt.unknown.l;
+    } else if (altitude === "ground") {
+        h = ColorByAlt.ground.h;
+        s = ColorByAlt.ground.s;
+        l = ColorByAlt.ground.l;
+    } else {
+        const altRound = (altitude < 8000) ? 50 : ((webgl && !pTracks && !SelectedAllPlanes) ? 200 : 500);
+        // round altitude to limit the number of colors used
+        altitude = altRound * Math.round(altitude / altRound);
+
+        s = ColorByAlt.air.s;
+
+        // find the pair of points the current altitude lies between,
+        // and interpolate the hue between those points
+        let hpoints = ColorByAlt.air.h;
+        h = hpoints[0].val;
+        for (let i = hpoints.length-1; i >= 0; --i) {
+            if (altitude > hpoints[i].alt) {
+                if (i == hpoints.length-1) {
+                    h = hpoints[i].val;
+                } else {
+                    h = hpoints[i].val + (hpoints[i+1].val - hpoints[i].val) * (altitude - hpoints[i].alt) / (hpoints[i+1].alt - hpoints[i].alt)
+                }
+                break;
+            }
+        }
+        let lpoints = ColorByAlt.air.l;
+        lpoints = lpoints.length ? lpoints : [{h:0, val:lpoints}];
+        l = lpoints[0].val;
+        for (let i = lpoints.length-1; i >= 0; --i) {
+            if (h > lpoints[i].h) {
+                if (i == lpoints.length-1) {
+                    l = lpoints[i].val;
+                } else {
+                    l = lpoints[i].val + (lpoints[i+1].val - lpoints[i].val) * (h - lpoints[i].h) / (lpoints[i+1].h - lpoints[i].h)
+                }
+                break;
+            }
+        }
+    }
+    if (darkerColors) {
+        l *= 0.8;
+        s *= 0.7;
+    }
+
+    if (h < 0) {
+        h = (h % 360) + 360;
+    } else if (h >= 360) {
+        h = h % 360;
+    }
+
+    if (s < 0) s = 0;
+    else if (s > 95) s = 95;
+
+    if (l < 0) l = 0;
+    else if (l > 95) l = 95;
+
+    return [h, s, l];
+}
+
+PlaneObject.prototype.setMarkerRgb = function() {
+    let hsl = this.getMarkerColor({noRound: true});
+    let rgb = hslToRgb(hsl, 'array');
+    if (this.shape && this.shape.svg)
+        rgb = [255, 255, 255];
+    this.glMarker.set('r', rgb[0]);
+    this.glMarker.set('g', rgb[1]);
+    this.glMarker.set('b', rgb[2]);
+};
+
+PlaneObject.prototype.updateIcon = function() {
+
+    // Satellites used to be forced onto the vector-icon path here because the
+    // shipped sprite sheet had no cell for them - it does now (see markers.js:
+    // 'satellite', 'sat_station', 'sat_military'), so they follow the same
+    // webgl-vs-vector-icon rule as every other marker.
+    const useVectorIcon = !webgl;
+
+    let fillColor = hslToRgb(this.getMarkerColor());
+    let svgKey  = fillColor + '!' + this.shape.name + '!' + this.strokeWidth;
+    let labelText = null;
+
+    if ( g.enableLabels && (!multiSelect || (multiSelect && this.selected)) &&
+        (
+            (g.zoomLvl >= labelZoom && this.altitude != "ground" && this.dataSource != "ais")
+            || (g.zoomLvl >= labelZoomGround - 2 && this.speed > 5 && !this.fakeHex)
+            || (g.zoomLvl >= labelZoomGround + 0 && !this.fakeHex)
+            || (g.zoomLvl >= labelZoomGround - 1)
+            || this.selected
+        )
+    ) {
+        let callsign = "";
+        if (this.flight && this.flight.trim() && !(this.dataSource == "ais" && !g.extendedLabels))
+            callsign =  this.flight.trim();
+        else if (this.registration)
+            callsign =  this.registration;
+        else
+            callsign =  this.icao;
+    // For AIS targets, append destination if available, otherwise fall back to routeString
+	    if (this.dataSource == "ais" && this.destination && this.destination.trim() !== "") {
+	        callsign += '\n' + this.destination;
+	    } else if ((useRouteAPI || this.dataSource == "ais") && this.routeString) {
+	        if (0 && g.extendedLabels) {
+	            callsign += ' - ' + this.routeString;
+	        } else {
+	            callsign += '\n' + this.routeString;
+	        }
+	    }
+
+        const unknown = NBSP+NBSP+"?"+NBSP+NBSP;
+
+        let alt;
+        if (this.isSatellite) {
+            alt = this.altitude; // no baro/geom correction applies to orbital altitude
+        } else if (labelsGeom) {
+            alt = adjust_geom_alt(this.alt_geom, this.position);
+        } else {
+            alt = adjust_baro_alt(this.altitude);
+        }
+        let altString = (alt == null) ? unknown : (this.isSatellite
+            ? formatSatelliteAltitude(alt)
+            : format_altitude_brief(alt, this.vert_rate, DisplayUnits, showLabelUnits));
+        let speedString = (this.speed == null) ? (NBSP+'?'+NBSP) : format_speed_brief(this.speed, DisplayUnits, showLabelUnits).padStart(3, NBSP);
+
+        labelText = "";
+        if (atcStyle) {
+            labelText += callsign + '\n';
+            labelText += altString + '\n';
+            labelText += 'x' + this.squawk;
+            if (this.squawk == '7700') labelText += '\nEMERGENCY';
+            else if (this.squawk == '7600' || this.squawk == '7601') labelText += '\nNORDO';
+            else if (this.squawk == '7500') labelText += '\nHIJACK';
+            else if (this.squawk == '7400') labelText += '\nLOST LINK';
+            else if (aircraftEmergencyShortLabels[Number(this.emergency)]) labelText += '\n' + aircraftEmergencyShortLabels[Number(this.emergency)];
+            else if (getShipEmergencyLevel(this) === 'squawk') labelText += '\nSOS';
+            else if (getShipEmergencyLevel(this) === 'field') labelText += '\nNOT UNDER COMMAND';
+        } else if (g.extendedLabels == 3) {
+            if (!windLabelsSlim) {
+                labelText += 'Wind' + NBSP;
+            }
+            if (this.wd != null) {
+                if (showLabelUnits) {
+                    labelText += format_track_arrow((this.wd + 180 % 360)) + NBSP + this.wd + '°' + NBSP;
+                    labelText += format_speed_long(this.ws, DisplayUnits);
+                } else {
+                    labelText += format_track_arrow((this.wd + 180 % 360)) + NBSP + this.wd + NBSP;
+                    labelText += format_speed_brief(this.ws, DisplayUnits);
+                }
+            } else {
+                labelText += 'n/a';
+            }
+            if (windLabelsSlim) {
+                labelText += '\n' + altString;
+            } else {
+                if ((!this.onGround || (this.speed && this.speed > 18) || (this.selected && !SelectedAllPlanes))) {
+                    labelText += '\n' + speedString + NBSP + NNBSP + altString.padStart(6, NBSP);
+                }
+                labelText += '\n' + callsign;
+            }
+
+            if (windLabelsSlim && this.wd == null) {
+                labelText = '';
+            }
+        } else if (g.extendedLabels == 2) {
+            labelText += (this.registration ? this.registration : unknown) + NBSP + (this.icaoType ? this.icaoType : unknown) + '\n';
+        }
+        if (g.extendedLabels == 1 || g.extendedLabels == 2) {
+            if ((!this.onGround || (this.speed && this.speed > 18) || (this.selected && !SelectedAllPlanes))) {
+                labelText += speedString + NBSP + NNBSP + altString.padStart(6, NBSP) + '\n';
+            }
+        }
+        if (g.extendedLabels < 3 && !atcStyle) {
+            labelText += callsign;
+        }
+    }
+    if (useVectorIcon && (this.markerStyle == null || this.markerIcon == null || (this.markerSvgKey != svgKey))) {
+        //console.log(this.icao + " new icon and style " + this.markerSvgKey + " -> " + svgKey);
+
+        if (iconCache[svgKey] == undefined) {
+            let svgURI = svgShapeToURI(this.shape, fillColor, OutlineADSBColor, this.strokeWidth);
+
+            addToIconCache.push([svgKey, null, svgURI]);
+
+            if (true || TrackedAircraftPositions < 200) {
+                this.markerIcon = new ol.style.Icon({
+                    scale: this.scale,
+                    imgSize: [this.shape.w, this.shape.h],
+                    src: svgURI,
+                    rotation: (this.shape.noRotate ? 0 : this.rotation * Math.PI / 180.0),
+                    rotateWithView: (this.shape.noRotate ? false : true),
+                });
+                this.scaleCache = this.scale;
+            } else {
+                svgKey = this.markerSvgKey;
+            }
+        } else {
+            this.markerIcon = new ol.style.Icon({
+                scale: this.scale,
+                imgSize: [this.shape.w, this.shape.h],
+                img: iconCache[svgKey],
+                rotation: (this.shape.noRotate ? 0 : this.rotation * Math.PI / 180.0),
+                rotateWithView: (this.shape.noRotate ? false : true),
+            });
+            this.scaleCache = this.scale;
+        }
+        this.markerSvgKey = svgKey;
+
+        //iconCache[svgKey] = undefined; // disable caching for testing
+    }
+    if (!this.markerIcon && useVectorIcon)
+        return;
+
+    let styleKey = (useVectorIcon ? svgKey : '') + '!' + labelText + '!' + this.scale;
+
+    if (this.styleKey != styleKey || !this.marker.getStyle()) {
+        this.styleKey = styleKey;
+        let style;
+        if (labelText) {
+            style = {
+                image: this.markerIcon,
+                text: new ol.style.Text({
+                    text: labelText,
+                    fill: labelFill,
+                    backgroundFill: bgFill,
+                    stroke: labelStrokeNarrow,
+                    textAlign: 'left',
+                    textBaseline: labels_top ? 'bottom' : 'top',
+                    font: labelFont,
+                    offsetX: (this.shape.w *0.5*0.74*this.scale),
+                    offsetY: labels_top ? (this.shape.w *-0.3*0.74*this.scale) : (this.shape.w *0.5*0.74*this.scale),
+                    padding: [1, 0, -1, 2],
+                }),
+                zIndex: this.zIndex,
+            };
+        } else {
+            style = {
+                image: this.markerIcon,
+                zIndex: this.zIndex,
+            };
+        }
+        if (!useVectorIcon)
+            delete style.image;
+        this.markerStyle = new ol.style.Style(style);
+        this.marker.setStyle(this.markerStyle);
+    }
+    if (!useVectorIcon)
+        return;
+
+    /*
+    if (this.opacityCache != opacity) {
+        this.opacityCache = opacity;
+        this.markerIcon.setOpacity(opacity);
+    }
+    */
+    const iconRotation = this.shape.noRotate ? 0 : this.rotation;
+    if (this.rotationCache != iconRotation && Math.abs(this.rotationCache - iconRotation) > 0.35) {
+        this.rotationCache = iconRotation;
+        this.markerIcon.setRotation(iconRotation * Math.PI / 180.0);
+    }
+
+    if (this.scaleCache != this.scale) {
+        this.scaleCache = this.scale;
+        this.markerIcon.setScale(this.scale);
+    }
+
+    return;
+};
+
+// All tracks (T) on a globe-history server: aircraft that aren't selected only
+// keep a short in-memory position history (this.trace, the last ~80-100
+// points), not a drawable track, so pressing T showed next to nothing and the
+// tails only grew from that moment. This replays that history into the track
+// once - the same loop processTrace() runs, but without needing a downloaded
+// trace - then restores the live state. No network requests.
+PlaneObject.prototype.seedTrackFromTrace = function() {
+    if (!globeIndex || replay || showTrace || this.isSatellite) return;
+    if (!this.trace || this.trace.length < 2) return;
+    if (this.track_linesegs && this.track_linesegs.length > 1) return;   // already has a track
+
+    const live = {};
+    planeCloneState(live, this);
+    const livePos = this.position, livePosTime = this.position_time, liveRotation = this.rotation;
+
+    let _now = 0, _last = 0;
+    for (let i = 0; i < this.trace.length; i++) {
+        const state = this.trace[i];
+        if (state.now <= _now) continue;   // no going backwards in time
+        _now = state.now;
+        this.position = state.position;
+        this.position_time = _now;
+        this.altitude = state.altitude;
+        this.alt_rounded = state.alt_rounded;
+        this.speed = state.speed;
+        this.track = state.track;
+        this.rotation = state.rotation;
+        if (_last - _now > 30) _last = _now - 1;
+        this.updateTrack(_now, _last);
+        _last = _now;
+    }
+
+    // back to the live values, ending the track at the current position
+    planeCloneState(this, live);
+    this.position = livePos;
+    this.position_time = livePosTime;
+    this.rotation = liveRotation;
+    if (livePos && livePosTime > _now) this.updateTrack(livePosTime, _last);
+    this.drawLine = true;
+};
+
+PlaneObject.prototype.processTrace = function() {
+
+    const old_last_info_server = this.last_info_server;
+
+    if (this.fullTrace && !this.fullTrace.trace) {
+        this.fullTrace = null;
+    }
+    if (this.recentTrace && !this.recentTrace.trace) {
+        this.recentTrace = null;
+    }
+    if (replay && !this.fullTrace)
+        return;
+
+    if (!showTrace && !this.fullTrace && !this.recentTrace) {
+        return;
+    }
+
+    if (!now)
+        now = new Date().getTime()/1000;
+
+    if (showTrace || replay)
+        this.setNull();
+
+    let legStart = traceOpts.legStart;
+    let legEnd = traceOpts.legEnd;
+    this.checkLayers();
+    let trace = null;
+    let _now, _last = 0;
+    this.history_size = 0;
+    let points_in_trace = 0;
+    let pointsRecent = 0;
+
+    if (!traceOpts.showTime) {
+        this.resetTrail();
+    }
+
+    let firstPos = null;
+
+    let tempPlane = {};
+    planeCloneState(tempPlane, this);
+
+    this.position = null;
+
+    if (this.fullTrace && this.recentTrace && this.fullTrace.length > 0 && this.recentTrace.length > 0) {
+        let t1 = this.fullTrace.trace;
+        let t2 = this.recentTrace.trace;
+        let end1 = t1[t1.length-1][0];
+        let start2 = t2[0][0];
+        if (end1 < start2)
+            console.log("Insufficient recent trace overlap!");
+    }
+
+    if (this.recentTrace && !this.fullTrace) {
+        trace = this.recentTrace.trace;
+    } else if (this.fullTrace) {
+        trace = this.fullTrace.trace;
+        if (this.recentTrace) {
+            const recent = this.recentTrace.trace;
+            for (let i = 0; i < recent.length; i++) {
+                const entry = recent[i];
+                if (trace.length == 0 || entry[0] > trace[trace.length - 1][0]) {
+                    //console.log("pushing " + entry[0]);
+                    trace.push(entry);
+                }
+            }
+        }
+    }
+
+    if (trace && trace.length > 0) {
+        let start = 0;
+        let end = trace.length;
+        _last = trace[0][0] - 1;
+
+        if (legStart != null)
+            start = legStart;
+        if (legEnd != null)
+            end = legEnd;
+
+        if (traceOpts.startStamp != null) {
+            let found = 0;
+            for (let i = start; i < end; i++) {
+                const timestamp = trace[i][0];
+                if (timestamp >= traceOpts.startStamp) {
+                    start = i;
+                    found = 1
+                    break;
+                }
+            }
+            if (!found) { start = end = 0; }
+        }
+        if (traceOpts.endStamp != null) {
+            let found = 0;
+            for (let i = end - 1; i >= start; i--) {
+                const timestamp = trace[i][0];
+                if (timestamp <= traceOpts.endStamp) {
+                    end = i + 1;
+                    found = 1
+                    break;
+                }
+            }
+            if (!found) { start = end = 0; }
+        }
+
+        if (lastLeg && !showTrace) {
+            for (let i = end - 1; i >= start; i--) {
+                if (trace[i][6] & 2) {
+                    start = i;
+                    break;
+                }
+            }
+        }
+
+        //console.log('trace points from/to: ' + trace[start][0] + ' ' + trace[end-1][0]);
+        let lastPosition;
+        for (let i = start; i < end; i++) {
+            const state = trace[i];
+            const timestamp = state[0];
+            let stale = state[6] & 1;
+            const leg_marker = state[6] & 2;
+
+            if (1000 * timestamp > new Date().getTime()) {
+                console.log('in the future ' + new Date(timestamp * 1000) + ' ' + state.join(','));
+            }
+            // no going backwards in time
+            if (timestamp < _now) {
+                console.log('backwards trace wat? ' + timestamp + ' ' + state.join(','));
+                continue;
+            }
+
+            _now = timestamp;
+
+            if (traceOpts.showTime && timestamp > traceOpts.showTime) {
+                if (traceOpts.replaySpeed > 0) {
+                    clearTimeout(traceOpts.showTimeout);
+                    traceOpts.animateRealtime = (timestamp - traceOpts.showTime) * 1000;
+                    traceOpts.animateTime = traceOpts.animateRealtime / traceOpts.replaySpeed;
+                    let fps = webgl ? 28 : 1;
+                    traceOpts.animateSteps = Math.round(traceOpts.animateTime / (1000 / fps));
+                    traceOpts.animateCounter = traceOpts.animateSteps; // will count down
+
+                    traceOpts.animateStepTime = traceOpts.animateRealtime / traceOpts.replaySpeed / traceOpts.animateSteps;
+
+                    if (traceOpts.animateSteps < 2) {
+                        traceOpts.animate = false;
+                        //console.log(`animateTime: ${traceOpts.animateTime}`);
+                        traceOpts.showTime = timestamp;
+                        traceOpts.showTimeout = setTimeout(gotoTime, traceOpts.animateTime);
+                    } else {
+                        traceOpts.showTimeEnd = timestamp;
+                        //console.timeEnd('step');
+                        //console.time('step');
+                        //console.log(traceOpts.animateTime);
+                        traceOpts.animate = true;
+
+                        traceOpts.animateFromLon = this.position[0];
+                        traceOpts.animateFromLat = this.position[1];
+                        traceOpts.animateToLon = state[2];
+                        traceOpts.animateToLat = state[1];
+
+                        traceOpts.animatePos = [traceOpts.animateFromLon, traceOpts.animateFromLat];
+
+                        //console.log('from: ', fromProj);
+                        //console.log('to:   ', toProj);
+
+                        traceOpts.showTimeout = setTimeout(gotoTime, traceOpts.animateStepTime);
+                    }
+                }
+                break;
+            }
+
+            if (now - timestamp < 3 * 60 * 60) {
+                pointsRecent++;
+            }
+
+            points_in_trace++;
+
+            this.updateTraceData(state, _now);
+
+            if (firstPos == null)
+                firstPos = this.position;
+
+            if (leg_marker) {
+                this.leg_ts = _now;
+                if (debugTracks) {
+                    console.log('leg zulu: ' + zuluTime(new Date(this.leg_ts * 1000)) + ' epoch: ' + this.leg_ts);
+                }
+            }
+            if (legStart != null && legStart > 0 && legStart == i) {
+                this.leg_ts = _now;
+            }
+            if (legEnd != null && legEnd < trace.length && legEnd == i + 1) {
+                this.leg_ts = _now;
+            }
+
+            if (_last - _now > 320) {
+                stale = true;
+            }
+
+            if (!traceOpts.showTime) {
+                this.updateTrack(_now, _last, true, stale);
+            } else if (this.track == null && lastPosition && this.request_rotation_from_track) {
+                this.rotation = bearingFromLonLat(lastPosition, this.position);
+                this.request_rotation_from_track = false;
+            }
+
+            _last = _now;
+            lastPosition = this.position;
+
+            // go only 1 step beyond now for replay, end of replay.ival is obeyed via traceOpts.endStamp
+            if (replay && timestamp >= now) {
+                //console.log(timestamp - now);
+                break;
+            }
+        }
+    }
+
+    for (let i = 0; i < this.trace.length; i++) {
+        if (showTrace || replay)
+            break;
+        const state = this.trace[i];
+        // no going backwards in time
+        if (state.now <= _now) {
+            //console.log(new Date(1000 * state.now));
+            continue;
+        }
+
+        _now = state.now;
+        this.position = state.position;
+        this.position_time = _now;
+        this.altitude = state.altitude;
+        this.alt_rounded = state.alt_rounded;
+        this.speed = state.speed;
+        this.track = state.track;
+        this.rotation = state.rotation;
+
+        if (_last - _now > 30) {
+            _last = _now - 1;
+        }
+
+        this.updateTrack(_now, _last);
+        _last = _now;
+    }
+
+
+    //if ((this.position == null || tempPlane.position != null) && tempPlane.position_time > this.position_time && !showTrace && !replay) {}
+    //console.log(tempPlane.position_time + ' ' + this.position_time);
+    if (tempPlane.last_message_time > this.last_message_time && !showTrace && !replay) {
+        planeCloneState(this, tempPlane);
+        this.updateTrack(this.position_time, _last);
+    }
+
+    if (showTrace && !traceOpts.showTime) {
+
+        if (this.track_linesegs.length > 0 && this.position) {
+            const proj = ol.proj.fromLonLat(this.position);
+            this.track_linesegs[this.track_linesegs.length - 1].fixed.appendCoordinate(proj);
+            this.track_linesegs.push({ fixed: new ol.geom.LineString([proj]),
+                feature: null,
+                estimated: false,
+                ground: (this.altitude == "ground"),
+                altitude: this.alt_rounded,
+                alt_real: this.altitude,
+                alt_geom: this.alt_geom,
+                position: this.position,
+                speed: this.speed,
+                ts: this.position_time,
+                track: this.rotation,
+                rId: this.rId,
+                dataSource: this.dataSource,
+            });
+        }
+        now = new Date().getTime()/1000;
+    }
+    if (showTrace) {
+        this.seen = 0;
+        this.seen_pos = 0;
+    }
+
+    this.visible = true;
+
+    if (traceOpts.follow)
+        toggleFollow(true);
+    if (traceOpts.showTime) {
+        this.updateMarker(true);
+    } else {
+        this.updateFeatures(true);
+    }
+
+    let mapSize = OLMap.getSize();
+    let size = [Math.max(5, mapSize[0] - 280), mapSize[1]];
+    if (!traceOpts.showTime
+        && (showTrace || showTraceExit)
+        && !multiSelect
+        && this.position
+        && !(traceOpts.noFollow && traceOpts.noFollow + 3 > new Date().getTime() / 1000)
+        && !inView(this.position, myExtent(OLMap.getView().calculateExtent(size)))
+        && !inView(firstPos, myExtent(OLMap.getView().calculateExtent(size))))
+    {
+        OLMap.getView().setCenter(ol.proj.fromLonLat(this.position));
+    }
+
+    showTraceExit = false;
+
+    this.checkForDB(this.recentTrace || this.fullTrace);
+
+    this.dataChanged();
+
+    refreshHighlighted();
+    refreshSelected();
+
+    if (showTrace) {
+        TAR.planeMan.refresh();
+        updateAddressBar();
+    }
+
+    this.updateTick();
+
+    if (debugTracks) {
+        console.log('3h: ' + pointsRecent.toString().padStart(4, ' ') + ' total: ' + points_in_trace);
+    }
+
+    if (old_last_info_server > this.last_info_server || !this.last_info_server) {
+        this.last_info_server = old_last_info_server;
+    }
+};
+
+PlaneObject.prototype.updatePositionData = function(now, last, data, init) {
+    if (this.position && SitePosition) {
+        if (pTracks && this.sitedist) {
+            this.sitedist = Math.max(ol.sphere.getDistance(SitePosition, this.position), this.sitedist);
+        } else if (!init || pTracks) {
+            this.sitedist = ol.sphere.getDistance(SitePosition, this.position);
+        }
+    }
+
+    if (this.isSatellite) {
+        // Satellites don't keep a local trail: their track comes from the
+        // server (fetchSatelliteTrack()), and accumulating points for every
+        // satellite on every poll only grew memory over a long session.
+        // Keep the one thing the marker needs from updateTrack(): a heading
+        // fallback from the previous position when the feed has no track.
+        this.updateSatellitePrev();
+    } else if (!globeIndex || this.selected || SelectedAllPlanes || replay) {
+        let newPos = this.updateTrack(now, last);
+        this.drawLine |= newPos;
+    }
+
+    if (globeIndex && !replay && this.position && this.position_time) {
+        if (this.position_time > this.lastTraceTs + 0.1) {
+            this.lastTraceTs = this.position_time;
+            this.trace.push({
+                now: this.position_time,
+                position: this.position,
+                altitude: this.altitude,
+                alt_rounded: this.alt_rounded,
+                speed: this.speed,
+                track: this.track,
+                rotation: this.rotation,
+            });
+            if (this.trace.length > 100) {
+                this.trace = this.trace.slice(-80);
+            }
+        }
+    }
+
+    this.dataChanged();
+}
+// Update our data
+PlaneObject.prototype.updateData = function(now, last, data, init) {
+    // get location data first, return early if only those are needed.
+
+    this.last_info_server = now;
+
+    let isArray = Array.isArray(data);
+    // [.hex, .alt_baro, .gs, .track, .lat, .lon, .seen_pos, "mlat"/"tisb"/.type , .flight, .messages]
+    //    0      1        2     3       4     5     6                 7               8        9
+    // this format is only valid for chunk loading the history
+    const alt_baro = isArray? data[1] : data.alt_baro;
+    let gs = isArray? data[2] : data.gs;
+    const track = isArray? data[3] : data.track;
+    const lat = isArray? data[4] : data.lat;
+    const lon = isArray? data[5] : data.lon;
+    let seen = isArray? data[6] : data.seen;
+    let seen_pos = isArray? data[6] : data.seen_pos;
+    seen = (seen == null) ? 5 : seen;
+    seen_pos = (seen_pos == null && lat) ? 5 : seen_pos;
+    let type = isArray? data[7] : data.type;
+    if (!isArray && data.mlat != null && data.mlat.indexOf("lat") >= 0) type = 'mlat';
+    const mlat = (type == 'mlat');
+    const tisb = (type && type.substring(0,4) == "tisb");
+    const flight = isArray? data[8] : data.flight;
+
+    this.last_message_time = now - seen;
+
+    // remember last known position even if stale
+    // do not show or process mlat positions when filtered out.
+    if (lat != null && lon != null && !(noMLAT && mlat)) {
+        this.position   = [lon, lat];
+        this.position_time = now - seen_pos;
+    }
+
+    // remember last known altitude even if stale
+    let newAlt = null;
+    if (alt_baro != null) {
+        newAlt = alt_baro;
+        this.alt_baro = alt_baro;
+    } else if (data.altitude != null) {
+        newAlt = data.altitude;
+        this.alt_baro = data.altitude;
+    } else {
+        this.alt_baro = null;
+        if (data.alt_geom != null) {
+            newAlt = data.alt_geom;
+        }
+    }
+    // Filter anything greater than 12000 fpm
+
+
+    if (newAlt == null || (newAlt == this.bad_alt && this.seen_pos > 5)) {
+        // do nothing
+    } else if (
+        !altitudeFilter
+        || this.altitude == null
+        || newAlt == "ground"
+        || this.altitude == "ground"
+        || (seen_pos != null && seen_pos < 2)
+    ) {
+        this.altitude = newAlt;
+        this.altitudeTime = now;
+    } else if (
+        this.alt_reliable > 0 && this.altBad(newAlt, this.altitude, this.altitudeTime, data)
+        && (this.bad_alt == null || this.altBad(newAlt, this.bad_alt, this.bad_altTime, data))
+    ) {
+        // filter this altitude!
+        this.alt_reliable--;
+        this.bad_alt = newAlt;
+        this.bad_altTime = now;
+        if (debugPosFilter) {
+            console.log((now%1000).toFixed(0) + ': AltFilter: ' + this.icao
+                + ' oldAlt: ' + this.altitude
+                + ' newAlt: ' + newAlt
+                + ' elapsed: ' + (now-this.altitudeTime).toFixed(0) );
+            jumpTo = this.icao;
+        }
+    } else {
+        // good altitude
+        this.altitude = newAlt;
+        this.altitudeTime = now;
+        this.alt_reliable = Math.min(this.alt_reliable + 1, 3);
+    }
+
+    this.updateAlt();
+
+    if (data.speed != null) {
+        gs = data.speed;
+    }
+
+    // needed for track labels
+    if (pTracks) {
+        if (gs != null) {
+            this.speed = Math.max(this.speed, gs);
+        }
+        this.gs = gs;
+    } else {
+        this.speed = gs;
+        this.gs = gs;
+    }
+
+    this.track = track;
+    if (track != null) {
+        this.rotation = track;
+    } else if (data.calc_track) {
+        this.rotation = data.calc_track;
+    } else {
+        this.request_rotation_from_track = true;
+    }
+
+    this.setTypeFlagsReg(data);
+    this.setFlight(flight);
+
+    if (mlat && noMLAT) {
+        this.dataSource = "modeS";
+    } else if (mlat) {
+        this.dataSource = "mlat";
+    } else if (!displayUATasADSB && this.uat && !tisb) {
+        this.dataSource = "uat";
+    } else if (tisb) {
+        this.dataSource = "tisb";
+    } else if (type && type.substring(0,4) == "adsr") {
+        this.dataSource = "adsr";
+    } else if ((lat != null && type == null) || (type && (type.substring(0,4) == "adsb"))) {
+        this.dataSource = "adsb";
+    } else if (type == 'adsc') {
+        this.dataSource = "adsc";
+    } else if (type == 'mode_s') {
+        this.dataSource = "modeS";
+    } else if (type == 'other') {
+        this.dataSource = "other";
+    } else if (type == 'unknown') {
+        this.dataSource = "unknown";
+    } else if (type == 'ais') {
+        this.dataSource = "ais";
+    }
+
+    // Satellites arrive tagged type:"other" by readsb (SBS input has no source-type
+    // concept of its own), which is also legitimately used by some real Mode S/other
+    // sources and by AIS vessels - sharing that bucket meant satellites were both
+    // miscategorized and invisible in the by-source color/legend/filter system (grey,
+    // indistinguishable from AIS). Overriding here, unconditionally and every update,
+    // gives them their own dedicated value instead.
+    if (this.isSatellite) {
+        this.dataSource = "sat";
+    }
+
+    if (isArray) {
+        this.messages = data[9];
+        this.updatePositionData(now, last, data, init);
+        return;
+    }
+
+    // Update all of our data
+
+    if (data.messages < this.messages && binCraft) this.messages -= 65536;
+    const elapsed = now - this.last;
+    if (elapsed > 0) {
+        let messageRate = 0;
+        if (!this.uat) {
+            messageRate = (data.messages - this.msgs1090)/(now - this.last);
+            this.msgs1090 = data.messages;
+        } else {
+            messageRate = (data.messages - this.msgs978)/(uat_now - uat_last);
+            this.msgs978 = data.messages;
+        }
+        if (elapsed > 60) messageRate = 0;
+        this.messageRate = (messageRate + this.messageRateOld)/2;
+        this.messageRateOld = messageRate;
+    }
+    this.messages = data.messages;
+
+    if (data.messageRate != null) {
+        this.messageRate = data.messageRate;
+    }
+
+    if (data.rssi != null && data.rssi > -49.4) {
+        this.rssi = data.rssi;
+    } else {
+        this.rssi = null;
+    }
+
+    if (data.baro_rate != null)
+        this.baro_rate = data.baro_rate;
+    else if (data.vert_rate != null)
+        this.baro_rate = data.vert_rate;
+    else
+        this.baro_rate = null;
+
+    // simple fields
+    this.alt_geom = data.alt_geom;
+    this.ias = data.ias;
+    this.tas = data.tas;
+    this.track_rate = data.track_rate;
+    this.mag_heading = data.mag_heading;
+    this.mach = data.mach;
+    this.roll = data.roll;
+    this.nav_altitude = data.nav_altitude;
+    this.nav_heading = data.nav_heading;
+    this.nav_modes = data.nav_modes;
+    this.nac_p = data.nac_p;
+    this.nac_v = data.nac_v;
+    this.nic_baro = data.nic_baro;
+    this.sil_type = data.sil_type;
+    this.sil = data.sil;
+    this.nav_qnh = data.nav_qnh;
+    this.geom_rate = data.geom_rate;
+    this.rc = data.rc;
+    if (!replay || data.squawk != null)
+        this.squawk = (data.squawk == null) ? null : `${data.squawk}`;
+    // Only update on messages that actually carry the Emergency/Priority
+    // Status subfield -- most ADS-B messages don't, and resetting to a
+    // default here would overwrite a genuine emergency with "none" the
+    // moment a message without it arrives.
+    if (data.emergency !== undefined) {
+        this.emergency = data.emergency;
+    }
+    this.wd = data.wd;
+    this.ws = data.ws;
+    this.oat = data.oat;
+    this.tat = data.tat;
+    this.receiverCount = data.receiverCount;
+
+    // fields with more complex behaviour
+
+    if (data.version != null) {
+        this.version = data.version;
+    }
+    if (data.category != null) {
+        this.category = `${data.category}`;
+    }
+
+    if (data.true_heading != null)
+        this.true_heading = data.true_heading;
+    else
+        this.true_heading = null;
+
+    if (type != null)
+        this.addrtype = type;
+    else
+        this.addrtype = null;
+
+    // Pick a selected altitude
+    if (data.nav_altitude_fms != null) {
+        this.nav_altitude = data.nav_altitude_fms;
+    } else if (data.nav_altitude_mcp != null){
+        this.nav_altitude = data.nav_altitude_mcp;
+    } else {
+        this.nav_altitude = null;
+    }
+
+    // Pick vertical rate from either baro or geom rate
+    if (data.baro_rate != null) {
+        this.vert_rate = data.baro_rate;
+    } else if (data.geom_rate != null ) {
+        this.vert_rate = data.geom_rate;
+    } else if (data.vert_rate != null) {
+        // legacy from mut v 1.15
+        this.vert_rate = data.vert_rate;
+    } else {
+        this.vert_rate = null;
+    }
+
+    this.request_rotation_from_track = false;
+    if (replay) {
+        this.request_rotation_from_track = true;
+    } else if (this.altitude == "ground") {
+        if (this.true_heading != null)
+            this.rotation = this.true_heading;
+        else if (this.mag_heading != null)
+            this.rotation = this.mag_heading;
+        else if (data.calc_track)
+            this.rotation = data.calc_track;
+    } else if (this.track != null) {
+        this.rotation = this.track;
+    } else if (this.true_heading != null) {
+        this.rotation = this.true_heading;
+    } else if (this.mag_heading != null) {
+        this.rotation = this.mag_heading;
+    } else if (data.calc_track) {
+        this.rotation = data.calc_track;
+    } else {
+        this.request_rotation_from_track = true;
+    }
+    if (data.nogps != null) {
+        this.nogps = data.nogps;
+    }
+    this.rId = data.rId;
+    if (!this.dbinfoLoaded) {
+        this.checkForDB(data);
+    }
+
+    if (data.route) {
+        this.routeString = data.route;
+    }
+
+    this.last = now;
+    this.updatePositionData(now, last, data, init);
+    return;
+};
+
+PlaneObject.prototype.updateTick = function(redraw) {
+    this.updateVisible();
+    this.updateFeatures(redraw);
+};
+
+PlaneObject.prototype.updateVisible = function() {
+    this.inView = inView(this.position, lastRenderExtent);
+    this.visible = this.checkVisible() && !this.isFiltered();
+};
+
+PlaneObject.prototype.updateFeatures = function(redraw) {
+
+    if (this.visible) {
+        if (this.drawLine || redraw || this.lastVisible != this.visible)
+            this.updateLines();
+
+        this.updateMarker(redraw);
+    }
+    if (!this.visible && this.lastVisible) {
+        this.clearMarker();
+        this.clearLines();
+    }
+
+    this.lastVisible = this.visible;
+};
+
+// Which WebGL source this object's icon belongs in: satellites have their own
+// layer (webglSatLayer, script.js) so they always paint above aircraft.
+// Falls back to the shared source if that layer wasn't created (heatmap mode).
+PlaneObject.prototype.glSource = function() {
+    return (this.isSatellite && webglSatLayer) ? webglSatFeatures : webglFeatures;
+};
+
+PlaneObject.prototype.clearMarker = function() {
+    this.markerDrawn = false;
+    if (this.marker && this.marker.visible) {
+        (this.isSatellite ? SatelliteIconFeatures : PlaneIconFeatures).removeFeature(this.marker);
+        this.marker.visible = false;
+    }
+    delete this.marker;
+    if (this.glMarker && this.glMarker.visible) {
+        (this.glMarker.glSource || webglFeatures).removeFeature(this.glMarker);
+        this.glMarker.visible = false;
+    }
+    delete this.glMarker;
+    delete this.styleKey;
+    delete this.olPoint;
+};
+
+// Update our marker on the map
+PlaneObject.prototype.updateMarker = function(moved) {
+    if (!this.visible || this.position == null || (pTracks && (SelectedAllPlanes || !this.selected))) {
+        if (this.markerDrawn)
+            this.clearMarker();
+        return;
+    }
+    this.markerDrawn = true;
+
+    this.setProjection();
+
+    let eastbound = this.rotation < 180;
+    let icaoType = this.icaoType;
+    if (this.speed > 120) {
+        if (icaoType == 'V22')
+            icaoType = 'V22F';
+        if (icaoType == 'B609')
+            icaoType = 'B609F';
+    }
+    if (icaoType == null && this.squawk == 7777)
+        icaoType = 'TWR';
+    // AIS vessels switch between the moving/static icon based on speed alone
+    // (see getBaseMarker) - fold that into the cache key so the shape actually
+    // updates as a vessel starts/stops, instead of sticking with whatever it
+    // was assigned on first sight. Irrelevant (and always false) for non-AIS.
+    let aisMoving = (this.dataSource == 'ais') ? (this.speed > 0.5) : false;
+    let baseMarkerKey = this.category + "_"
+        + this.typeDescription + "_" + this.wtc  + "_" + icaoType + '_' + (this.altitude == "ground") + eastbound + '_' + aisMoving;
+
+    if (!this.shape || this.baseMarkerKey != baseMarkerKey) {
+        this.baseMarkerKey = baseMarkerKey;
+        let baseMarker = null;
+        try {
+            baseMarker = getBaseMarker(this.category, icaoType, this.typeDescription, this.wtc, this.addrtype, this.altitude, eastbound, this.icao, this.speed, this.satCategory);
+        } catch (error) {
+            console.error(error);
+            console.log(baseMarkerKey);
+        }
+        if (!baseMarker) {
+            baseMarker = ['pumpkin', 1];
+        }
+        this.shape = shapes[baseMarker[0]];
+        this.baseScale = baseMarker[1] * 0.96;
+    }
+    this.scale = iconSize * this.baseScale;
+    this.strokeWidth = outlineWidth * ((this.selected && !SelectedAllPlanes && !onlySelected) ? 0.85 : 0.7) / this.baseScale;
+
+    // Satellites use the same sprite-sheet WebGL path as everything else (the
+    // sheet has 'satellite' / 'sat_station' / 'sat_military' cells), but into
+    // their own WebGL layer - see glSource().
+    const useVectorIcon = !webgl;
+
+    if (!this.marker && (useVectorIcon || g.enableLabels)) {
+        this.marker = new ol.Feature(this.olPoint);
+        this.marker.hex = `${this.icao}`;
+    }
+    if (!useVectorIcon && !g.enableLabels && this.marker) {
+        if (this.marker.visible) {
+            (this.isSatellite ? SatelliteIconFeatures : PlaneIconFeatures).removeFeature(this.marker);
+            this.marker.visible = false;
+        }
+    }
+
+    if (webgl) {
+        if (!this.glMarker) {
+            this.glMarker = new ol.Feature(this.olPoint);
+            this.glMarker.hex = `${this.icao}`;
+        }
+
+        this.setMarkerRgb();
+        const iconRotation = this.shape.noRotate ? 0 : this.rotation;
+        this.glMarker.set('rotation', iconRotation * Math.PI / 180.0 + g.mapOrientation);
+        this.glMarker.set('scale', this.scale * Math.max(this.shape.w, this.shape.h) / glIconSize);
+        this.glMarker.set('sx', getSpriteX(this.shape) * glIconSize);
+        this.glMarker.set('sy', getSpriteY(this.shape) * glIconSize);
+    }
+
+    if (this.marker && (useVectorIcon || g.enableLabels)) {
+        this.updateIcon();
+        if (!this.marker.visible) {
+            this.marker.visible = true;
+            (this.isSatellite ? SatelliteIconFeatures : PlaneIconFeatures).addFeature(this.marker);
+        }
+    }
+    if (webgl && this.glMarker && !this.glMarker.visible) {
+        this.glMarker.visible = true;
+        this.glMarker.glSource = this.glSource();   // remember where it went, for removal
+        this.glMarker.glSource.addFeature(this.glMarker);
+    }
+    if (!webgl && this.glMarker && this.glMarker.visible) {
+        (this.glMarker.glSource || webglFeatures).removeFeature(this.glMarker);
+        this.glMarker.visible = false;
+    }
+};
+
+
+// return the styling of the lines based on altitude
+function altitudeLines (segment) {
+    let colorArr = altitudeColor(segment.altitude);
+    if (segment.estimated)
+        colorArr = [colorArr[0], colorArr[1], colorArr[2] * 0.8];
+    //let color = 'hsl(' + colorArr[0].toFixed(0) + ', ' + colorArr[1].toFixed(0) + '%, ' + colorArr[2].toFixed(0) + '%)';
+
+    let color = hslToRgb(colorArr);
+
+    if (monochromeTracks)
+        color = monochromeTracks;
+
+    const modeS = (segment.dataSource == 'modeS');
+    const lineKey = '_' + color + debugTracks + noVanish + segment.estimated + newWidth + modeS + segment.noLabel + segment.estimatedFill;
+
+    if (lineStyleCache[lineKey])
+        return lineStyleCache[lineKey];
+
+    let multiplier = segment.estimated ? 0.6 : 1;
+
+    if (noVanish)
+        multiplier *= (segment.estimated ? 0.3 : 0.6);
+
+    let join = 'round';
+    let cap = 'square';
+    if (!debugTracks) {
+        if (modeS) {
+            lineStyleCache[lineKey]	= [
+                new ol.style.Style({}),
+                new ol.style.Style({
+                    image: new ol.style.Circle({
+                        radius: 3 * newWidth,
+                        fill: new ol.style.Fill({
+                            color: color
+                        })
+                    }),
+                    geometry: function(feature) {
+                        return new ol.geom.MultiPoint(feature.getGeometry().getCoordinates());
+                    }
+                })
+            ];
+        } else if (segment.estimated && !noVanish) {
+            lineStyleCache[lineKey]	= [
+                new ol.style.Style({
+                    stroke: new ol.style.Stroke({
+                        color: 'black',
+                        width: 2 * newWidth * 0.3,
+                        lineJoin: join,
+                        lineCap: cap,
+                    })
+                }),
+                new ol.style.Style({
+                    stroke: new ol.style.Stroke({
+                        color: color,
+                        width: 2 * newWidth,
+                        lineDash: [10, 20 + 3 * newWidth],
+                        lineDashOffset: 5,
+                        lineJoin: join,
+                        lineCap: cap,
+                    }),
+                })
+            ];
+        } else if (segment.estimated && pTracks) {
+            lineStyleCache[lineKey]	= new ol.style.Style({});
+        } else {
+            lineStyleCache[lineKey]	= new ol.style.Style({
+                stroke: new ol.style.Stroke({
+                    color: color,
+                    width: 2 * newWidth * multiplier,
+                    lineJoin: join,
+                    lineCap: cap,
+                })
+            });
+        }
+    } else {
+        lineStyleCache[lineKey] = [
+            new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: (segment.estimatedFill ? 0 : 2) * newWidth,
+                    fill: new ol.style.Fill({
+                        color: color
+                    })
+                }),
+                geometry: function(feature) {
+                    return new ol.geom.MultiPoint(feature.getGeometry().getCoordinates());
+                }
+            }),
+            new ol.style.Style({
+                stroke: new ol.style.Stroke({
+                    color: color,
+                    width: ((segment.noLabel || segment.estimated) ? 0.5 : 1) * newWidth * multiplier,
+                    lineJoin: join,
+                    lineCap: cap,
+                })
+            })
+        ];
+    }
+    return lineStyleCache[lineKey];
+}
+
+// Update our planes tail line,
+PlaneObject.prototype.updateLines = function() {
+    this.drawLine = false;
+    if (!this.visible || this.position == null || (!this.selected && !SelectedAllPlanes)) {
+        if (this.linesDrawn) {
+            this.clearLines();
+        }
+        return;
+    }
+
+    this.linesDrawn = true;
+    this.clearTraceAfter = null;
+
+    if (this.track_linesegs.length == 0)
+        return;
+
+    this.checkLayers();
+
+    let trail_add = [];
+    let label_add = [];
+
+    if (!this.layer.getVisible())
+        this.layer.setVisible(true);
+
+    if (trackLabels || showTrace) {
+        if (!this.layer_labels.getVisible())
+            this.layer_labels.setVisible(true);
+    } else if (this.layer_labels && this.layer_labels.getVisible()) {
+        this.layer_labels.setVisible(false);
+    }
+
+    // create the new elastic band feature
+    if (this.elastic_feature) {
+        this.trail_features.removeFeature(this.elastic_feature);
+        this.elastic_feature = null;
+    }
+
+    // create any missing fixed line features
+
+    for (let i = this.track_linesegs.length-1; i >= 0; i--) {
+        let seg = this.track_linesegs[i];
+        if (seg.feature && (!trackLabels || seg.label))
+            break;
+
+        if ((filterTracks && altFiltered(seg.altitude, this.isSatellite)) || altitudeLines(seg) == nullStyle) {
+            seg.feature = true;
+        } else if (!seg.feature) {
+            seg.feature = true;
+            let feature = new ol.Feature(seg.fixed);
+            feature.setStyle(altitudeLines(seg));
+            feature.hex = `${this.icao}`;
+            feature.timestamp = Number(seg.ts);
+            trail_add.push(feature);
+        }
+
+        if (seg.label) {
+            // nothing to do, label already present
+        } else if ((filterTracks && altFiltered(seg.altitude, this.isSatellite)) || seg.noLabel) {
+            seg.label = true;
+        } else if (
+            trackLabels ||
+            ((i == 0 || i == this.track_linesegs.length-1 ||seg.leg) && showTrace && g.enableLabels)
+        ) {
+            // 0 vertical rate to avoid arrow
+            let altString;
+            if(seg.alt_real == "ground") {
+                altString = "Ground";
+            } else if (this.isSatellite) {
+                altString = (seg.alt_real == null) ? (NBSP+'?'+NBSP) : formatSatelliteAltitude(seg.alt_real);
+            } else {
+                let alt;
+                if (labelsGeom) {
+                    alt = adjust_geom_alt(seg.alt_geom, seg.position);
+                } else {
+                    alt = adjust_baro_alt(seg.alt_real);
+                }
+
+                if (alt == null) {
+                    altString = (NBSP+'?'+NBSP);
+                } else {
+                    altString = format_altitude_brief(alt, 0, DisplayUnits, showLabelUnits);
+                }
+            }
+            const speedString = (seg.speed == null) ? (NBSP+'?'+NBSP) : format_speed_brief(seg.speed, DisplayUnits, showLabelUnits).padStart(3, NBSP);
+
+            seg.label = new ol.Feature(new ol.geom.Point(seg.fixed.getFirstCoordinate()));
+            let timestamp1;
+            let timestamp2 = "";
+            const historic = (showTrace || replay);
+            const useLocal = ((historic && !utcTimesHistoric) || (!historic && !utcTimesLive));
+            const date = new Date(seg.ts * 1000);
+            if (!date) {
+                console.log(seg);
+            }
+            let refDate = showTrace ? traceDate : new Date();
+            if (replay) { refDate = replay.ts };
+            if (useLocal && historic) {
+                timestamp1 = lDateString(date);
+                timestamp1 += '\n';
+            } else if (getDay(refDate) == getDay(date)) {
+                timestamp1 = "";
+            } else {
+                if (useLocal) {
+                    timestamp1 = lDateString(date);
+                } else {
+                    timestamp1 = zDateString(date);
+                }
+                timestamp1 += '\n';
+            }
+
+            if (useLocal) {
+                timestamp2 += localTime(date);
+            } else {
+                timestamp2 += zuluTime(date);
+            }
+
+            if (traces_high_res || debugTracks) {
+                timestamp2 += '.' + (Math.floor((seg.ts*10)) % 10);
+            }
+
+            if (showTrace && !utcTimesHistoric) {
+                timestamp2 += '\n' + TIMEZONE;
+            } else if (!useLocal) {
+                timestamp2 += NBSP + 'Z';
+            }
+
+            let text =
+                speedString.padStart(3, NBSP) + "  "
+                + altString.padStart(6, NBSP)
+                + "\n"
+                //+ NBSP + format_track_arrow(seg.track)
+                + timestamp1 + timestamp2;
+            if (seg.rId && show_rId) {
+                text += "\n" + seg.rId.substring(0,9); //+ "\n" + seg.rId.substring(9,18);
+            }
+
+            if (showTrace && !trackLabels)
+                text = timestamp1 + timestamp2;
+
+            let fill = labelFill;
+            let zIndex = -i - 50 * (seg.alt_real == null);
+            if (seg.leg == 'start') {
+                fill = new ol.style.Fill({color: '#88CC88' });
+                zIndex += 123499;
+            }
+            if (seg.leg == 'end') {
+                fill = new ol.style.Fill({color: '#8888CC' });
+                zIndex += 123455;
+            }
+            const otherDiag = seg.track != null && ((seg.track > 270 && seg.track < 360) || (seg.track > 90 && seg.track < 180));
+            seg.label.setStyle(
+                new ol.style.Style({
+                    text: new ol.style.Text({
+                        text: `${text}`,
+                        fill: fill,
+                        stroke: labelStroke,
+                        textAlign: 'left',
+                        //backgroundFill: bgFill,
+                        textBaseline: otherDiag ? 'bottom' : 'top',
+                        font: labelFont,
+                        offsetX: (otherDiag ? 4 : 8) * globalScale,
+                        offsetY: (otherDiag ? -4 : 8) * globalScale,
+                    }),
+                    image: new ol.style.Circle({
+                        radius: 2 * globalScale,
+                        fill: blackFill,
+                    }),
+                    zIndex: Number(zIndex),
+                })
+            );
+            seg.label.hex = `${this.icao}`;
+            seg.label.timestamp = Number(seg.ts);
+            seg.label.isLabel = true;
+            label_add.push(seg.label)
+        }
+    }
+
+    let lastseg = this.track_linesegs[this.track_linesegs.length - 1];
+    let lastfixed = lastseg.fixed.getCoordinateAt(1.0);
+    let geom = new ol.geom.LineString([lastfixed, ol.proj.fromLonLat(this.position)]);
+
+
+    if (!showTrace) {
+        this.elastic_feature = new ol.Feature(geom);
+        if (filterTracks && altFiltered(lastseg.altitude, this.isSatellite)) {
+            this.elastic_feature.setStyle(nullStyle);
+        } else {
+            this.elastic_feature.setStyle(altitudeLines(lastseg));
+        }
+        this.elastic_feature.hex = this.icao;
+        trail_add.push(this.elastic_feature);
+    }
+
+
+    if (trail_add.length > 0)
+        this.trail_features.addFeatures(trail_add);
+    if (this.trail_labels && label_add.length > 0)
+        this.trail_labels.addFeatures(label_add);
+
+};
+
+PlaneObject.prototype.resetTrail = function() {
+    this.removeTrail();
+    this.track_linesegs = [];
+
+}
+PlaneObject.prototype.removeTrail = function() {
+
+    if (this.trail_features)
+        this.trail_features.clear();
+    if (this.trail_labels)
+        this.trail_labels.clear();
+
+    for (let i in this.track_linesegs) {
+        delete this.track_linesegs[i].feature;
+        delete this.track_linesegs[i].label;
+    }
+    this.elastic_feature = null;
+};
+
+// This is to remove the line from the screen if we deselect the plane
+PlaneObject.prototype.clearLines = function() {
+    this.linesDrawn = false;
+    if (this.layer && this.layer.getVisible()) {
+        this.layer.setVisible(false);
+    }
+    if (this.layer_labels && this.layer_labels.getVisible()) {
+        this.layer_labels.setVisible(false);
+    }
+};
+
+PlaneObject.prototype.clearTrace = function() {
+    this.clearTraceAfter = null;
+
+    this.clearLines();
+    this.removeTrail();
+
+    if (globeIndex) {
+        this.recentTrace = null;
+        this.fullTrace = null;
+    }
+}
+
+PlaneObject.prototype.destroyTrace = function() {
+    this.clearTrace();
+    if (this.layer) {
+        trailGroup.remove(this.layer);
+        this.trail_features = null;
+        this.layer = null;
+    }
+    if (this.layer_labels) {
+        trailGroup.remove(this.layer_labels);
+        this.trail_labels = null;
+        this.layer_labels = null;
+    }
+}
+
+PlaneObject.prototype.makeTR = function (trTemplate) {
+
+    this.trCache = [];
+    this.bgColorCache = undefined;
+    this.tr = trTemplate;
+
+    this.clickListener = (evt) => {
+        if (evt.srcElement instanceof HTMLAnchorElement) {
+            evt.stopPropagation();
+            return;
+        }
+
+        if(!mapIsVisible) {
+            selectPlaneByHex(this.icao, {follow: true});
+        } else {
+            selectPlaneByHex(this.icao, {follow: false});
+        }
+        evt.preventDefault();
+    };
+
+    this.tr.addEventListener('click', this.clickListener);
+
+    if (!globeIndex) {
+        this.dblclickListener = (evt) => {
+            if(!mapIsVisible) {
+                showMap();
+            }
+            selectPlaneByHex(this.icao, {follow: true});
+            evt.preventDefault();
+        };
+
+        this.tr.addEventListener('dblclick', this.dblclickListener);
+    }
+};
+PlaneObject.prototype.destroyTR = function (trTemplate) {
+    if (this.tr == null)
+        return;
+
+    this.tr.removeEventListener('click', this.clickListener);
+    this.tr.removeEventListener('dblclick', this.dblclickListener);
+
+    delete this.clickListener;
+    delete this.dblclickListener;
+
+    if (this.tr.parentNode) {
+        this.tr.parentNode.removeChild(this.tr);
+    }
+
+    this.tr.remove();
+
+    this.tr = null;
+};
+
+PlaneObject.prototype.destroy = function() {
+    this.clearLines();
+    this.clearMarker();
+    this.visible = false;
+    deselect(this);
+    this.destroyTR();
+    this.destroyTrace();
+    for (let key in Object.keys(this)) {
+        delete this[key];
+    }
+};
+
+function calcAltitudeRounded(altitude) {
+    if (altitude == null) {
+        return null;
+    } else if (altitude == "ground") {
+        return altitude;
+    } else if (altitude > 8000 || heatmap) {
+        return (altitude/500).toFixed(0)*500;
+    } else {
+        return (altitude/125).toFixed(0)*125;
+    }
+};
+
+PlaneObject.prototype.drawRedDot = function(bad_position) {
+    this.checkLayers();
+    if (debugJump && loadFinished && SelectedPlane != this) {
+        OLMap.getView().setCenter(ol.proj.fromLonLat(bad_position));
+        selectPlaneByHex(this.icao, false);
+    }
+    let badFeat = new ol.Feature(new ol.geom.Point(ol.proj.fromLonLat(bad_position)));
+    badFeat.setStyle(this.dataSource == "mlat"  ? badDotMlat : badDot);
+    this.trail_features.addFeature(badFeat);
+    let geom = new ol.geom.LineString([ol.proj.fromLonLat(this.prev_position), ol.proj.fromLonLat(bad_position)]);
+    let lineFeat = new ol.Feature(geom);
+    lineFeat.setStyle(this.dataSource == "mlat" ? badLineMlat : badLine);
+    this.trail_features.addFeature(lineFeat);
+};
+
+function hexToHSL(hex) {
+    let r = +('0x'+ hex[1] + hex[2]) / 255;
+    let g = +('0x'+ hex[3] + hex[4]) / 255;
+    let b = +('0x'+ hex[5] + hex[6]) / 255;
+    let cmin = Math.min(r,g,b);
+    let cmax = Math.max(r,g,b);
+    let delta = cmax - cmin;
+    let h = 0, s = 0, l = 0;
+    if (delta == 0)
+        h = 0;
+    else if (cmax == r)
+        h = ((g - b) / delta) % 6;
+    else if (cmax == g)
+        h = (b - r) / delta + 2;
+    else
+        h = (r - g) / delta + 4;
+
+    h = Math.round(h * 60);
+
+    if (h < 0)
+        h += 360;
+
+    l = (cmax + cmin) / 2;
+    s = delta == 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+
+    s *= 100;
+    l *= 100;
+
+    return [h, s, l];
+};
+
+/**
+ * Converts an HSL color value to RGB. Conversion formula
+ * adapted from http://en.wikipedia.org/wiki/HSL_color_space.
+ * Assumes h, s, and l are contained in the set [0, 1] and
+ * returns r, g, and b in the set [0, 255].
+ *
+ * @param   {number}  h       The hue
+ * @param   {number}  s       The saturation
+ * @param   {number}  l       The lightness
+ * @return  {Array}           The RGB representation
+ */
+function hslToRgb(arr, opacity){
+    let h = arr[0];
+    let s = arr[1];
+    let l = arr[2];
+    let r, g, b;
+
+    h /= 360;
+    s *= 0.01;
+    l *= 0.01;
+
+    if(s == 0){
+        r = g = b = l; // achromatic
+    }else{
+        let hue2rgb = function hue2rgb(p, q, t){
+            if(t < 0) t += 1;
+            if(t > 1) t -= 1;
+            if(t < 1/6) return p + (q - p) * 6 * t;
+            if(t < 1/2) return q;
+            if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+            return p;
+        }
+
+        let q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        let p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3);
+    }
+
+    if (opacity == 'array')
+        return [ Math.round(r * 255), Math.round(g * 255), Math.round(b * 255) ];
+
+    if (opacity != null)
+        return 'rgba(' + Math.round(r * 255) + ', ' + Math.round(g * 255) + ', ' +  Math.round(b * 255) + ', ' + opacity + ')';
+    else
+        return 'rgb(' + Math.round(r * 255) + ', ' + Math.round(g * 255) + ', ' +  Math.round(b * 255) + ')';
+}
+
+PlaneObject.prototype.altBad = function(newAlt, oldAlt, oldTime, data) {
+    let max_fpm = 12000;
+    if (data.geom_rate != null)
+        max_fpm = 1.3*Math.abs(data.goem_rate) + 5000;
+    else if (data.baro_rate != null)
+        max_fpm = 1.3*Math.abs(data.baro_rate) + 5000;
+
+    const delta = Math.abs(newAlt - oldAlt);
+    const fpm = (delta < 800) ? 0 : (60 * delta / (now - oldTime + 2));
+    return fpm > max_fpm;
+};
+
+PlaneObject.prototype.getAircraftData = function() {
+    if (this.isSatellite) {
+        this.dbinfoLoaded = true;
+        return;
+    }
+    if (0) {
+        this.dbinfoLoaded = true;
+        return;
+    }
+    if (this.dbLoad) {
+        return;
+    }
+    this.dbLoad = true;
+
+    let req = dbLoad(this.icao);
+
+    req.then(
+        data => {
+            //console.log('fromDB');
+            if (this.dbinfoLoaded)
+                return;
+            this.dbinfoLoaded = true;
+            delete this.dbLoad;
+            if (data == null) {
+                //console.log(this.icao + ': Not found in database!');
+                return;
+            }
+            if (data == "strange") {
+                //console.log(this.icao + ': Database malfunction!');
+                return;
+            }
+
+
+            //console.log(this.icao + ': loaded!');
+            // format [r:0, t:1, f:2]
+
+            if (data[1]) {
+                this.icaoType = `${data[1]}`;
+                this.setTypeData();
+            }
+
+            if (data[3]) {
+                this.typeLong = `${data[3]}`;
+            }
+
+            if (data[2]) {
+                this.military = (data[2][0] == '1');
+                this.interesting = (data[2][1] == '1');
+                this.pia = (data[2][2] == '1');
+                this.ladd = (data[2][3] == '1');
+                if (this.pia)
+                    this.registration = null;
+            }
+
+            if (data[0]) {
+                this.registration = `${data[0]}`;
+            }
+
+            this.dataChanged();
+
+            data = null;
+        },
+        e => {
+            delete this.dbLoad;
+            if (e.http_status == 'timeout') {
+                this.getAircraftData();
+            } else if (e.http_status == 'other') {
+                this.dbinfoLoaded = true;
+            } else {
+                console.log(this.icao + ': Unrecognized Database load error: ' + e);
+                this.dbinfoLoaded = true;
+            }
+        });
+};
+
+PlaneObject.prototype.reapTrail = function() {
+    const oldSegs = this.track_linesegs;
+    this.track_linesegs = [];
+    this.history_size = 0;
+    for (let i in oldSegs) {
+        const seg = oldSegs[i];
+        if (seg.ts + tempTrailsTimeout > now) {
+            this.history_size += seg.fixed.getCoordinates().length;
+            this.track_linesegs.push(seg);
+        }
+    }
+    if (this.track_linesegs.length != oldSegs.length) {
+        this.removeTrail();
+        this.updateTick(true);
+    }
+};
+
+PlaneObject.prototype.milRange = function() {
+    if (this.fakeHex) // non-icao hex
+        return false;
+    for (let i in milRanges) {
+        const r = milRanges[i];
+        if (this.numHex >= r[0] && this.numHex <= r[1])
+            return true;
+    }
+    return false;
+};
+
+PlaneObject.prototype.updateTraceData = function(state, _now) {
+    const lat = state[1];
+    const lon = state[2];
+    const altitude = state[3];
+    const gs = state[4];
+    const track = state[5];
+    const rate_geom = state[6] & 4;
+    const alt_geom = state[6] & 8;
+    const rate = state[7];
+    const data = state[8];
+    const type = state[9];
+    const geom_alt = state[10];
+    const geom_rate = state[11];
+    const ias = state[12];
+    const roll = state[13];
+    const rId = state[14];
+
+    this.position = [lon, lat];
+    this.position_time = _now;
+    this.last_message_time = _now;
+    this.altitude = altitude;
+
+    if (altitude && altitude != "ground" && this.geom_diff_ts && _now - this.geom_diff_ts < 60) {
+        this.alt_geom = altitude + this.geom_diff;
+    }
+
+    this.updateAlt();
+
+    if (alt_geom) {
+        this.alt_geom = altitude;
+        //this.alt_baro = null;
+    } else {
+        this.alt_baro = altitude;
+        //this.alt_geom = null;
+    }
+    this.speed = gs;
+    this.gs = gs;
+
+    if (altitude == 'ground') {
+        this.true_heading = track;
+        this.track = null;
+    } else {
+        this.track = track;
+        //this.true_heading = null;
+    }
+
+    if (track)
+        this.rotation = track;
+    else
+        this.request_rotation_from_track = true;
+
+    this.vert_rate = rate;
+    if (rate_geom) {
+        this.geom_rate = rate;
+        this.baro_rate = null;
+    } else {
+        this.baro_rate = rate;
+        this.geom_rate = null;
+    }
+
+    if (geom_alt !== undefined) {
+        this.alt_geom = geom_alt;
+    }
+    if (geom_rate !== undefined) {
+        this.geom_rate = geom_rate;
+    }
+
+    if (roll !== undefined)
+        this.roll = roll;
+    if (ias !== undefined)
+        this.ias = ias;
+    if (type !== undefined)
+        this.addrtype = (type == null) ? null : `${type}`;
+
+    if (rId !== undefined)
+        this.rId = rId;
+
+    if (data != null) {
+        this.setFlight(data.flight);
+
+        if (data.alt_geom != null && !alt_geom && altitude != null && altitude != "ground") {
+            //this.alt_geom = altitude + this.geom_diff;
+            this.geom_diff = data.alt_geom - altitude;
+            this.geom_diff_ts = _now;
+        }
+
+        this.addrtype = (data.type == null) ? null : `${data.type}`;
+
+        this.alt_geom = data.alt_geom;
+        this.ias = data.ias;
+        this.tas = data.tas;
+        this.track = data.track;
+        this.mag_heading = data.mag_heading;
+        this.true_heading = data.true_heading;
+        this.mach = data.mach;
+        this.track_rate = data.track_rate;
+        this.roll = data.roll;
+        this.nav_altitude = data.nav_altitude;
+        this.nav_heading = data.nav_heading;
+        this.nav_modes = data.nav_modes;
+        this.nac_p = data.nac_p;
+        this.nac_v = data.nac_v;
+        this.nic_baro = data.nic_baro;
+        this.sil_type = data.sil_type;
+        this.sil = data.sil;
+        this.nav_qnh = data.nav_qnh;
+        this.baro_rate = data.baro_rate;
+        this.geom_rate = data.geom_rate;
+        this.rc = data.rc;
+        this.squawk = (data.squawk == null) ? null : `${data.squawk}`;
+        if (data.emergency !== undefined) {
+            this.emergency = data.emergency;
+        }
+
+        this.wd = data.wd;
+        this.ws = data.ws;
+        this.oat = data.oat;
+        this.tat = data.tat;
+
+        // fields with more complex behaviour
+
+        this.version = data.version;
+        if (data.category != null) {
+            this.category = `${data.category}`;
+        }
+
+        if (data.nav_altitude_fms != null) {
+            this.nav_altitude = data.nav_altitude_fms;
+        } else if (data.nav_altitude_mcp != null){
+            this.nav_altitude = data.nav_altitude_mcp;
+        } else {
+            this.nav_altitude = null;
+        }
+    }
+    if (!this.addrtype) {
+        this.dataSource = "unknown";
+    } else if (this.addrtype.substring(0,4) == "adsb") {
+        this.dataSource = "adsb";
+    } else if (this.addrtype.substring(0,4) == "adsr") {
+        this.dataSource = "adsr";
+    } else if (this.addrtype == "mlat") {
+        this.dataSource = "mlat";
+    } else if (this.addrtype == "adsb_icao_nt") {
+        this.dataSource = "modeS";
+    } else if (this.addrtype == 'mode_s') {
+        this.dataSource = "modeS";
+    } else if (this.addrtype.substring(0,4) == "tisb") {
+        this.dataSource = "tisb";
+    } else if (this.addrtype == 'adsc') {
+        this.dataSource = "adsc";
+    } else if (this.addrtype == 'other') {
+        this.dataSource = "other";
+    } else if (this.addrtype == 'unknown') {
+        this.dataSource = "unknown";
+    }
+    if (this.isSatellite) {
+        this.dataSource = "sat";
+    }
+
+};
+
+function makeCircle(points, greyskull) {
+    let out = points;
+    //console.log('1: ' + out.map(x => [Math.round(x[0]), Math.round(x[1])]));
+    for (let k = 0; k < greyskull; k++) {
+        out = [points[0]];
+        for (let j = 1; j < points.length; j++) {
+            let i = j - 1;
+            out.push(midpoint(points[i], points[j]));
+            out.push(points[j]);
+            //console.log('added 2: ' + out.map(x => [Math.round(x[0]), Math.round(x[1])]));
+        }
+        points = out;
+    }
+
+    return out;
+}
+
+// adapted from https://github.com/seangrogan/great_circle_calculator
+function midpoint(from, to) {
+    let lon1 = from[0] * (Math.PI/180);
+    let lat1 = from[1] * (Math.PI/180);
+    let lon2 = to[0] * (Math.PI/180);
+    let lat2 = to[1] * (Math.PI/180);
+
+    let b_x = Math.cos(lat2) * Math.cos(lon2 - lon1);
+    let b_y = Math.cos(lat2) * Math.sin(lon2 - lon1);
+    let lat3 = Math.atan2(Math.sin(lat1) + Math.sin(lat2), Math.sqrt((Math.cos(lat1) + b_x) * (Math.cos(lat1) + b_x) + b_y * b_y));
+    let lon3 = lon1 + Math.atan2(b_y, Math.cos(lat1) + b_x);
+    lat3 /= (Math.PI/180);
+    lon3 /= (Math.PI/180);
+    lon3 = (lon3 + 540) % 360 - 180;
+    return [lon3, lat3];
+}
+
+PlaneObject.prototype.cross180 = function(on_ground, is_leg) {
+    let sign1 = Math.sign(this.prev_position[0]);
+    let sign2 = Math.sign(this.position[0]);
+
+    let out = makeCircle([this.prev_position, this.position], 8);
+
+    //console.log([...out]);
+
+    let seg1 = [];
+    let seg2 = [];
+
+    let tmp;
+
+    while ((tmp = out.shift()) != null) {
+        if (sign1 == Math.sign(tmp[0]))
+            seg1.push(tmp);
+        else
+            seg2.push(tmp);
+    }
+    //console.log([...seg1]);
+    //console.log([...seg2]);
+    let before = seg1[seg1.length - 1];
+    let after = seg2[0];
+    // weight according to the opposite distance, well longitude difference
+    // not perfect, good enough
+    let afterWeight = Math.abs(sign1 * 180 - before[0]);
+    let beforeWeight = Math.abs(sign2 * 180 - after[0]);
+    let midLat = (beforeWeight * before[1] + afterWeight * after[1]) / (beforeWeight + afterWeight);
+
+    let midPoint1 = [sign1 * 180, midLat];
+    let midPoint2 = [sign2 * 180, midLat];
+
+    seg1.push(midPoint1);
+    seg2.unshift(midPoint2);
+
+    for (let i in seg1)
+        seg1[i] = ol.proj.fromLonLat(seg1[i]);
+    for (let i in seg2)
+        seg2[i] = ol.proj.fromLonLat(seg2[i]);
+
+    seg1.unshift(seg1[0]);
+
+    this.track_linesegs.push({ fixed: new ol.geom.LineString([seg1.shift()]),
+        feature: null,
+        estimated: true,
+        ground: (this.prev_alt == "ground"),
+        altitude: this.prev_alt_rounded,
+        alt_real: this.prev_alt,
+        alt_geom: this.prev_alt_geom,
+        position: this.prev_position,
+        speed: this.prev_speed,
+        ts: this.prev_time,
+        track: this.prev_rot,
+        leg: is_leg,
+        rId: this.prev_rId,
+    });
+
+    this.track_linesegs.push({ fixed: new ol.geom.LineString(seg1),
+        feature: null,
+        estimated: true,
+        ground: (this.prev_alt == "ground"),
+        altitude: this.prev_alt_rounded,
+        alt_real: this.prev_alt,
+        alt_geom: this.prev_alt_geom,
+        position: this.prev_position,
+        speed: this.prev_speed,
+        track: this.prev_rot,
+        ts: NaN,
+        noLabel: true,
+        rId: this.prev_rId,
+    });
+
+    this.track_linesegs.push({ fixed: new ol.geom.LineString(seg2),
+        feature: null,
+        estimated: true,
+        ground: (this.prev_alt == "ground"),
+        altitude: this.prev_alt_rounded,
+        alt_real: this.prev_alt,
+        alt_geom: this.prev_alt_geom,
+        position: this.prev_position,
+        speed: this.prev_speed,
+        track: this.prev_rot,
+        ts: NaN,
+        noLabel: true,
+        rId: this.prev_rId,
+    });
+};
+
+PlaneObject.prototype.dataChanged = function() {
+    this.refreshTR = 0;
+    // AIS vessels are not aircraft. Their destination is taken straight from the AIS
+    // feed (see processBoat()); sending their callsigns to the aircraft route API is
+    // pointless, floods it (every vessel is re-queued every ~30s once the "no route"
+    // answer expires), and routeCheck() used to overwrite the AIS destination with ''.
+    if (useRouteAPI && !this.isSatellite && !this.icao.startsWith('MMSI')){
+        this.routeCheck();
+    }
+}
+
+PlaneObject.prototype.isNonIcao = function() {
+    if (this.icao[0] == '~')
+        return true;
+    else
+        return false;
+};
+
+PlaneObject.prototype.checkVisible = function() {
+    const refresh = g.lastRefreshInt / 1000;
+    const noInfoTimeout = replay ? 600 : (reApi ? (30 + 2 * refresh) : (30 + Math.min(1, (globeTilesViewCount / globeSimLoad)) * (2 * refresh)));
+    const modeSTime = (guessModeS && this.dataSource == "modeS") ? 300 : 0;
+    const tisbReduction = (globeIndex && this.icao[0] == '~') ? 15 : 0;
+    // If no packet in over 58 seconds, clear the plane.
+    // Only clear the plane if it's not selected individually
+
+    // recompute seen and seen_pos
+    let __now = now;
+    if (isNaN(__now)) {
+        console.error("checkVisible: now is NaN, this is probably a browser bug: https://issues.chromium.org/issues/401652934");
+        __now = g.now;
+    }
+    if (this.dataSource == "uat") {
+        __now = uat_now;
+    }
+    this.seen = Math.max(0, __now - this.last_message_time);
+    this.seen_pos = Math.max(0, __now - this.position_time);
+    this.noInfoTime = __now - this.last_info_server;
+
+    let timeout = seenTimeout;
+    if (this.dataSource == "mlat") { timeout = seenTimeoutMlat; }
+    else if (this.dataSource == "adsc") { timeout = jaeroTimeout; }
+    else if (this.dataSource == 'ais') { timeout = aisTimeout; }
+
+    timeout += modeSTime - tisbReduction + refresh;
+
+    const res = (!globeIndex || icaoFilter || this.inView || this.selected || SelectedAllPlanes) && (
+        (!globeIndex && this.seen < timeout)
+        || (globeIndex && this.seen_pos < timeout && this.noInfoTime < noInfoTimeout)
+        || this.selected
+        || noVanish
+        || (nogpsOnly && this.nogps && this.seen < 15 * 60) // ugly hard coded
+    );
+
+    return res;
+};
+
+PlaneObject.prototype.setTypeData = function() {
+	if (g.type_cache == null || !this.icaoType || this.icaoType == this.icaoTypeCache)
+        return;
+    this.updateMarker();
+    this.icaoTypeCache = this.icaoType;
+
+    let typeCode = this.icaoType.toUpperCase();
+    if (typeCode == 'P8 ?') {
+        typeCode = 'P8';
+    }
+    if (!(typeCode in g.type_cache))
+        return;
+
+    let typeData = g.type_cache[typeCode];
+    const typeLong = typeData[0];
+    const desc = typeData[1];
+    const wtc = typeData[2];
+    if (desc != null)
+        this.typeDescription = `${desc}`;
+    if (wtc != null)
+        this.wtc = `${wtc}`;
+    if (this.typeLong == null && typeLong != null)
+        this.typeLong = `${typeLong}`;
+};
+
+PlaneObject.prototype.setTypeFlagsReg = function(data) {
+    if (data.t && data.t != this.icaoType) {
+        this.icaoType = `${data.t}`;
+        this.setTypeData();
+    }
+    if (data.dbFlags) {
+        this.military = data.dbFlags & 1;
+        this.interesting = data.dbFlags & 2;
+        this.pia = data.dbFlags & 4;
+        this.ladd = data.dbFlags & 8;
+        if (this.pia)
+            this.registration = null;
+    }
+    if (data.r) this.registration = `${data.r}`;
+}
+
+PlaneObject.prototype.checkForDB = function(data) {
+    // Satellites never have a registration/type-code entry - the DB server has no
+    // chunk file for the synthetic F00000-FFFFFE hex block at all, so any lookup here
+    // fails every time. If that failure is ever classified as a timeout rather than a
+    // clean "not found", getAircraftData() retries itself forever - which is the loop
+    // this guard exists to prevent. Skip the whole subsystem for satellites.
+    if (this.isSatellite) {
+        this.dbinfoLoaded = true;
+        return;
+    }
+    if (!this.dbinfoLoaded && this.icao >= 'ae6620' && this.icao <= 'ae6899') {
+        this.icaoType = 'P8 ?';
+        this.setTypeData();
+    }
+    if (data) {
+
+        if (data.desc) this.typeLong = `${data.desc}`;
+        if (data.ownOp) this.ownOp = `${data.ownOp}`;
+        if (data.year) this.year = `${data.year}`;
+
+        this.setTypeFlagsReg(data);
+
+        if (data.r || data.t) {
+            this.dbinfoLoaded = true;
+        }
+    }
+    if (!this.dbinfoLoaded && (!dbServer || replay || pTracks || heatmap)) {
+        this.getAircraftData();
+        return;
+    }
+    this.dataChanged();
+};
+PlaneObject.prototype.updateAlt = function(t) {
+    this.alt_rounded = calcAltitudeRounded(this.altitude);
+
+    if (this.altitude == null) {
+        this.onGround = null;
+        this.zIndex = 10;
+    } else if (this.altitude == "ground") {
+        this.onGround = true;
+        this.zIndex = 5;
+    } else {
+        this.onGround = false;
+        this.zIndex = this.altitude + 200000;
+    }
+    if (this.category == 'C3' || this.icaoType == 'TWR') {
+        this.zIndex = 1;
+    }
+    if (this.fakeHex)
+        this.zIndex -= 100000;
+
+    // Satellites must always render above every other tracked object,
+    // regardless of what the altitude-based logic above produced -- their
+    // altitude can be null/unavailable transiently (e.g. before the first
+    // successful propagation cycle), which would otherwise collapse them
+    // to the lowest zIndex tier. This only affects map stacking order,
+    // not the altitude value shown in the info panel/table.
+    if (this.isSatellite) {
+        this.zIndex = 500000;
+    }
+
+}
+PlaneObject.prototype.setProjection = function(arg) {
+    let pos = traceOpts.animate ? traceOpts.animatePos : this.position;
+
+    let lon = pos[0];
+    let lat = pos[1];
+    let moved = false;
+
+    //let trace = new Error().stack.toString();
+    //console.log(lat + ' ' + trace);
+
+    // manual wrap around (no longer necessary due to OpenLayers changing their webGL code)
+    if (0 && webgl && Math.abs(CenterLon - lon) > 180) {
+        if (CenterLon < 0)
+            lon -= 360;
+        else
+            lon += 360;
+    }
+    //console.log([lat, lon]);
+
+    let proj = ol.proj.fromLonLat([lon, lat]);
+
+    if (this == SelectedPlane && (arg == 'follow' || checkFollow())) {
+        OLMap.getView().setCenter(proj);
+    }
+
+    if (this.proj) {
+        moved |= (this.proj[0] != proj[0] || this.proj[1] != proj[1]);
+    } else {
+        moved = true;
+    }
+    this.proj = proj;
+
+    if (!this.olPoint) {
+        this.olPoint = new ol.geom.Point(proj);
+    } else if (moved) {
+        this.olPoint.setCoordinates(proj);
+    }
+}
+
+function normalized_callsign(flight) {
+    const re = /^([A-Z]*)([0-9]*)([A-Z]*)$/;
+    const match = flight.match(re);
+    if (!match) {
+        return flight;
+    }
+    let alpha = match[1];
+    let num = match[2];
+    let alpha2 = match[3];
+    while(num[0] == '0' && num.length > 1) {
+        num = num.slice(1);
+    }
+    return alpha + num + alpha2;
+}
+
+PlaneObject.prototype.routeCheck = function() {
+    if (this.icao.startsWith('MMSI')) {
+        // defence in depth - see dataChanged()
+        return;
+    }
+    if (!this.visible) {
+        // we don't care, don't update
+        return;
+    }
+    if (!this.flight || !this.name
+        || this.name == 'empty callsign'
+        || this.name == 'no callsign'
+        || this.registration == this.name
+    ) {
+        this.routeString = '';
+        this.routeVerbose = '';
+        this.routeColumn = '';
+        this.routeShort = '';
+        return;
+    }
+
+    let currentName = normalized_callsign(this.name);
+    if (g.route_check_todo[currentName]) {
+        // already checking
+        return;
+    }
+    let currentTime = Date.now()/1000;
+    // if we don't have a route cached or if the cache is older than 6h, do a lookup
+    const route = g.route_cache[currentName];
+    if (!route || currentTime > route.tarNextUpdate) {
+        if (route) {
+            console.log("routeAPI: updating ", currentName, localTime(new Date(currentTime)), localTime(new Date(route.tarNextUpdate)));
+        }
+        // we have all the pieces that allow us to lookup a route
+        let route_check = { 'callsign': currentName, icao: this.icao};
+        if (!this.position) {
+            // no lookup (for now)
+            return;
+        } else if (showTrace || replay) {
+            if (!routeApiUrl.includes("adsb.im")) {
+                route_check['lat'] = this.position[1];
+                route_check['lng'] = this.position[0];
+            }
+        } else {
+            route_check['lat'] = this.position[1];
+            route_check['lng'] = this.position[0];
+        }
+
+        g.route_check_todo[currentName] = route_check;
+        return;
+    }
+
+    if (!route._airports || route._airports.length < 1) {
+        this.routeString = '';
+        this.routeVerbose = '';
+        this.routeColumn = '';
+        this.routeShort = '';
+        return;
+    }
+
+    let routeString = "";
+    let cities = "";
+
+    for (let airport of route._airports) {
+        if (routeString) {
+            if (routeDisplay.includes('city')) {
+                routeString += " -\n"
+            } else {
+                routeString += " - "
+            }
+
+            cities += " - ";
+        }
+        let aString = ""
+        for (let type of routeDisplay) {
+            if (aString) {
+                aString += '/';
+            }
+            if (type == 'iata') {
+                aString += airport.iata;
+            } else if (type == 'icao') {
+                aString += airport.icao;
+            } else if (type == 'city') {
+                aString += airport.location || airport.iata || airport.icao;   // an airport without a city must not print "undefined"
+            }
+        }
+        cities += airport.location || airport.iata || airport.icao;
+        routeString += aString;
+    }
+    if (route._airports.length > 2) {
+        this.routeColumn = 'MULTIHOP';
+    } else {
+        this.routeColumn = routeString;
+    }
+
+    if (route.plausible === false) {
+        routeString = '?? ' + routeString;
+    }
+
+    //console.log(this.routeString);
+    this.routeString = routeString;
+    this.routeVerbose = cities;
+    // Compact form for the mobile sheet header: "NCL-CDG" (IATA where known,
+    // ICAO otherwise), independent of the routeDisplay setting.
+    this.routeShort = (route.plausible === false ? '? ' : '')
+        + route._airports.map(a => a.iata || a.icao || '?').join('-');
+}
+
+// config.js may set   routeApiBatchSize = 25;   (default 100, the tar1090 default) - handy when an API
+// rejects big requests. Optional and not declared anywhere by default, so it is read defensively:
+// either as a plain global (routeApiBatchSize = 25;) or as a window property (window.routeApiBatchSize = 25;).
+function routeApiBatchLimit() {
+    let n;
+    if (typeof window !== 'undefined' && typeof window.routeApiBatchSize === 'number')
+        n = window.routeApiBatchSize;
+    else if (typeof routeApiBatchSize !== 'undefined')
+        n = routeApiBatchSize;
+    return (typeof n === 'number' && n >= 1) ? Math.floor(n) : 100;
+}
+
+// Counters for diagnosing the route lookup from the browser console:  g.route_stats
+// (apiOk / apiFail = POSTs to routeApiUrl, last = recent API calls with HTTP status and
+// batch size).
+function routeStats() {
+    if (!g.route_stats) {
+        g.route_stats = { apiOk: 0, apiFail: 0, last: [] };
+    }
+    return g.route_stats;
+}
+function routeStatsApi(ok, jqxhr, batchSize) {
+    const s = routeStats();
+    if (ok) s.apiOk++; else s.apiFail++;
+    s.last.push({ ok: ok, status: jqxhr ? jqxhr.status : undefined, callsigns: batchSize, t: new Date().toISOString() });
+    if (s.last.length > 20) s.last.shift();
+    if (debugRoute) {
+        console.log('route API ' + (ok ? 'ok' : 'FAILED') + ': HTTP ' + (jqxhr ? jqxhr.status : '?') + ', ' + batchSize + ' callsigns');
+    }
+}
+
+function routeDoLookup() {
+    const currentTime = Date.now()/1000;
+    // JavaScript doesn't interrupt running functions - so this should be safe to do
+    if (g.route_check_in_flight) {
+        return;
+    }
+    if (!g.route_check_checking) {
+        // grab up to the first 100 callsigns (config.js: routeApiBatchSize) and leave the rest for later
+        g.route_check_checking = Object.values(g.route_check_todo).slice(0, routeApiBatchLimit());
+    }
+    if (g.route_check_checking.length < 1) {
+        g.route_check_checking = null;
+        return;
+    }
+    if (g.route_check_checking.length < 10 && currentTime - g.route_last_lookup < 3.5) {
+        // only do lookups every 3 seconds if we don't have many routes to check
+        if (debugRoute) {
+            console.log('delaying route check, trying to bundle request for 3 seconds');
+        }
+        return;
+    }
+
+    g.route_check_in_flight = true;
+    g.route_last_lookup = currentTime;
+
+    if (debugRoute) {
+        console.log(`${currentTime}: g.route_check_checking:`, g.route_check_checking);
+    }
+
+    const requestRoutes = [];
+    for (const entry of g.route_check_checking) {
+        requestRoutes.push({
+            callsign: entry['callsign'],
+            lat: entry['lat'],
+            lng: entry['lng'],
+        });
+    }
+
+    const requestBody = JSON.stringify({ 'planes': requestRoutes });
+    const batchSize = requestRoutes.length;
+
+    if (debugRoute) {
+        console.log(`${currentTime}: requesting routes:`, requestBody);
+    }
+
+    // A failed API call: back off, and drop a batch that keeps failing.
+    const onApiFailure = (jqxhr) => {
+        routeStatsApi(false, jqxhr, batchSize);
+        g.route_check_failures = (g.route_check_failures || 0) + 1;
+        // Back off exponentially while the API keeps failing (15s, 30s, 60s ... capped
+        // at 10 min) instead of retrying every 15s forever. Firing again is pointless
+        // when the server is refusing this origin (403 / no CORS header) or is down.
+        const backoff = Math.min(15 * Math.pow(2, g.route_check_failures - 1), 600);
+        g.route_check_in_flight = false;
+        g.route_next_lookup = Date.now()/1000 + backoff;
+        if (g.route_check_failures % 3 === 0) {
+            // The same batch has failed 3 times running. Left alone it stays at the head of
+            // the queue forever (e.g. one callsign the server rejects), starving everything
+            // behind it. Drop it and don't ask about those callsigns again for 5 minutes.
+            const t = Date.now()/1000;
+            for (const entry of (g.route_check_checking || [])) {
+                delete g.route_check_todo[entry.callsign];
+                g.route_cache[entry.callsign] = { tarNextUpdate: t + 300 };
+            }
+            g.route_check_checking = null;
+            console.log('route API request failed 3 times in a row, dropping this batch for 5 minutes; next attempt in ' + backoff + 's.');
+        } else {
+            console.log('route API request error, next attempt in ' + backoff + ' seconds.');
+        }
+    };
+
+    jQuery.ajax({
+        type: "POST",
+        url: routeApiUrl,
+        contentType: 'application/json; charset=utf-8',
+        dataType: 'json',
+        data: requestBody,
+    })
+        .done((routes, textStatus, jqxhr) => {
+            if (!Array.isArray(routes)) {
+                // "Success" without a route list (an empty 201, {}, null, ...): the API is not
+                // actually serving routes. Treat it as a failure (back off) rather than as
+                // "no route for anybody", which would just re-ask for the same callsigns
+                // every 30s.
+                console.log('route API returned something other than a list (HTTP ' + (jqxhr && jqxhr.status) + ')');
+                onApiFailure(jqxhr);
+                return;
+            }
+            const currentTime = Date.now()/1000;
+            routeStatsApi(true, jqxhr, batchSize);
+            g.route_check_in_flight = false;
+            g.route_check_failures = 0;
+            // Take the batch and release the queue FIRST: if anything below throws, or the
+            // response is garbage, the same batch must not stay at the head of the queue
+            // and be re-sent forever (which also starves every other callsign).
+            const checking = g.route_check_checking || [];
+            g.route_check_checking = null;
+            if (debugRoute) {
+                console.log(`${currentTime}: got routes:`, routes);
+            }
+            for (let i = 0; i < routes.length; i++) {
+                const route = routes[i];
+                if (!route || typeof route !== 'object' || !route.callsign) {
+                    if (debugRoute) {
+                        console.log(`Route API returned this invalid element: ${String(route)}, probably for`, checking[i]);
+                    }
+                    continue;
+                }
+                route.tarNextUpdate = currentTime + 6 * 3600; // recheck in 6 hours
+                g.route_cache[route.callsign] = route;
+            }
+            for (const entry of checking) {
+                delete g.route_check_todo[entry.callsign];
+                const cached = g.route_cache[entry.callsign];
+                if (!cached || currentTime > cached.tarNextUpdate) {
+                    g.route_cache[entry.callsign] = { tarNextUpdate: Math.ceil(currentTime / 30) * 30 };
+                }
+                const plane = g.planes[entry.icao];
+                plane && plane.dataChanged();
+            }
+            // let's update the route data immediately by refreshing the interface
+            refresh();
+        })
+        .fail((jqxhr, status, error) => {
+            onApiFailure(jqxhr);
+        });
+}
+
+PlaneObject.prototype.setFlight = function(flight) {
+    if (flight == null) {
+        if (now - this.flightTs > 10 * 60) {
+            this.flight = null;
+            this.name ='no callsign';
+        }
+    } else if (flight == "@@@@@@@@") {
+        this.flight = null;
+        this.name ='no callsign';
+    } else {
+        this.flight = `${flight}`;
+        this.name = this.flight.trim() || 'empty callsign';
+        this.flightTs = now;
+    }
+}
+
+function normalizeTraceStamps(data) {
+    if (!data || !data.trace) {
+        console.log('normalizeTraceStamps: trace empty?')
+        return null;
+    }
+    let trace = data.trace;
+    let last = 0;
+    let negOffsetWarned = 0;
+    for (let i = 0; i < trace.length; i++) {
+        let point = trace[i];
+        if (point[0] < 0 && !negOffsetWarned) {
+            negOffsetWarned = 1;
+            console.log('negative offset in trace');
+        }
+        point[0] += data.timestamp;
+        if (point[0] >= last) {
+            last = point[0];
+        } else {
+            console.log('normalize: trace backwards last: ' + last.toFixed(3) + ' current: ' + point[0].toFixed(3));
+        }
+    }
+    data.timestamp = 0;
+    return data;
+}
