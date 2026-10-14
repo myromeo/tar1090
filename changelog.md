@@ -1,6 +1,33 @@
 ## Changelog
 All notable changes to this project will be documented here. 
 
+## 14-10-2026
+### Major update
+**New app-style interface**
+- The map has been rebuilt around Apple's iOS design guidance, the same on desktop, phone and the installed app: a top bar with the menu, search and logo, and a floating bottom bar for Home, Aircraft, Maritime, Space, Military and Emergency
+- The single-letter buttons are gone. Everything else lives in one plain-text menu, with map layers on their own page
+- Military and emergency traffic on screen are flagged with a dot on the bottom bar
+- Settings and About open as popups; Replay opens as a panel along the bottom with its own close button
+- The object list has its own tab on the right of the map and a cleaner, consistent look
+- A slim altitude colour bar that hides when no aircraft are on screen, plain credits showing only what our data sources require, and new zoom buttons
+- Light and dark mode follow your device by default, with a manual switch in Settings
+
+**Search**
+- Search aircraft, vessels and satellites by callsign, registration, flight, ship name, MMSI, NORAD number, type, operator, route or airport code (e.g. LHR)
+- Results show the same flag, summary and route as the map, and selecting one takes you straight to it
+- "Show all on the map" filters the map to just the matching objects; clear the search to show everything again
+
+**Installed iPhone app**
+- Removed the blur iOS 27 draws over the top of home-screen web apps. Remove and re-add the app to your Home Screen to pick this up
+
+**Main site**
+- Contribute page redesigned with installation tabs and easier-to-read text across the site
+
+**Bug fixes**
+- Vessels no longer stop updating, and hull outlines show again when zoomed in - my bad!
+- "Show all tracks" works again, Follow on select is now a setting, and closing the details panel re-centres the map
+- Various other fixes
+
 ## 12-10-2026
 ### Feature update
 **mlat.uk MLAT server**
